@@ -116,10 +116,18 @@ export type RootStackParamList = {
   Main: undefined;
   PlaceDetail: { placeId: string };
   CacheManagement: undefined;
+  Theme: undefined;
+  Language: undefined;
+  Login: undefined;
+  Dashboard: undefined;
+  Profile: undefined;
+  MyReviews: undefined;
+  Bookmarks: undefined;
 };
 
 export type TabParamList = {
   HomeTab: undefined;
+  MapTab: undefined;
   AddPlaceTab: undefined;
 };
 

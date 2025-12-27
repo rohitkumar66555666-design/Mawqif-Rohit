@@ -11,16 +11,22 @@ import {
   FlatList,
   Dimensions,
   Animated,
+  ActivityIndicator,
 } from "react-native";
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 
 import { Place, Review, ReviewSortOption } from "../types";
 import { PlacesService } from "../services/places.service";
 import { ReviewsService } from "../services/reviews.service";
+import { BookmarksService } from "../services/bookmarks.service";
 import { LocationService } from "../services/location.service";
-import { COLORS, PLACE_TYPES } from "../utils/constants";
+import { useUserInfo } from "../lib/authHelper";
+import { useTheme } from "../contexts/ThemeContext";
+import { useLanguage } from "../contexts/LanguageContext";
+import { PLACE_TYPES } from "../utils/constants";
 import { getResponsiveDimensions, rs, rf } from "../utils/responsive";
 import { ReviewsSection } from "../components/ReviewsSection";
+import { useDirectionsAuth, useWhatsAppAuth, useBookmarkAuth } from "../lib/authHelper";
 
 
 
@@ -42,16 +48,25 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
   navigation,
 }) => {
   const { placeId } = route.params;
+  const { colors } = useTheme();
+  const { t } = useLanguage();
+  const { requireDirectionsAuth } = useDirectionsAuth();
+  const { requireWhatsAppAuth } = useWhatsAppAuth();
+  const { requireBookmarkAuth } = useBookmarkAuth();
   const [place, setPlace] = useState<Place | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [reviewSort, setReviewSort] = useState<ReviewSortOption>('newest');
+  const [isBookmarked, setIsBookmarked] = useState(false);
+  const [bookmarkLoading, setBookmarkLoading] = useState(false);
   const buttonScale = new Animated.Value(1);
   const scrollY = useRef(new Animated.Value(0)).current;
 
-  // Mock current user ID (in real app, get from auth context)
-  const currentUserId = 'current_user_123';
+  const { user, isAuthenticated, getUserDisplayName } = useUserInfo();
+
+  // Use authenticated user ID or fallback
+  const currentUserId = user?.uid || 'current_user_123';
 
   // Test database connection on component mount
   useEffect(() => {
@@ -70,19 +85,19 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
           Alert.alert(
             'Database Setup Required',
             'The reviews system needs to be set up. Please run the SQL setup file in your Supabase dashboard.',
-            [{ text: 'OK' }]
+            [{ text: t('ok') || 'OK' }]
           );
         } else if (errorMessage.includes('NO PLACES IN DATABASE')) {
           Alert.alert(
             'No Places Found',
             'You need to add some places to your database before you can review them.',
-            [{ text: 'OK' }]
+            [{ text: t('ok') || 'OK' }]
           );
         } else {
           Alert.alert(
             'Database Connection Issue',
             `There's an issue with the database: ${errorMessage}`,
-            [{ text: 'OK' }]
+            [{ text: t('ok') || 'OK' }]
           );
         }
       }
@@ -91,6 +106,7 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
     testDatabase();
   }, []);
 
+  // Refresh authentication state when screen comes into focus
   // Header configuration is now handled by navigator
 
   // Star Rating Component - Professional star icons instead of emojis
@@ -128,9 +144,9 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
         </View>
         <Text style={styles.ratingText}>
           {rating > 0 ? rating.toFixed(1) : '0.0'} {
-            reviewCount === 0 ? '(No reviews yet)' : 
-            reviewCount === 1 ? '(1 review)' : 
-            reviewCount ? `(${reviewCount} reviews)` : '(No reviews yet)'
+            reviewCount === 0 ? `(${t('noReviewsYet') || 'No reviews yet'})` : 
+            reviewCount === 1 ? `(1 ${t('review') || 'review'})` : 
+            reviewCount ? `(${reviewCount} ${t('reviews') || 'reviews'})` : `(${t('noReviewsYet') || 'No reviews yet'})`
           }
         </Text>
       </View>
@@ -140,6 +156,7 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
   useEffect(() => {
     fetchPlaceDetails();
     fetchReviews();
+    checkBookmarkStatus();
   }, [placeId]);
 
   useEffect(() => {
@@ -148,13 +165,32 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
     }
   }, [reviewSort]);
 
+  // Check bookmark status when user changes
+  useEffect(() => {
+    checkBookmarkStatus();
+  }, [user]);
+
+  const checkBookmarkStatus = async () => {
+    if (!user?.uid || !placeId) {
+      setIsBookmarked(false);
+      return;
+    }
+
+    try {
+      const bookmarked = await BookmarksService.isBookmarked(user.uid, placeId);
+      setIsBookmarked(bookmarked);
+    } catch (error) {
+      console.error('Error checking bookmark status:', error);
+    }
+  };
+
   const fetchPlaceDetails = async () => {
     try {
       const placeData = await PlacesService.getPlaceById(placeId);
       setPlace(placeData);
     } catch (error) {
       console.error("Error fetching place details:", error);
-      Alert.alert("Error", "Unable to load place details");
+      Alert.alert(t('error') || 'Error', t('unableToLoad') || 'Unable to load place details');
     } finally {
       setLoading(false);
     }
@@ -174,34 +210,40 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
   const handleGetDirections = () => {
     if (!place) return;
 
-    // Add button press animation
-    Animated.sequence([
-      Animated.timing(buttonScale, {
-        toValue: 0.95,
-        duration: 100,
-        useNativeDriver: true,
-      }),
-      Animated.timing(buttonScale, {
-        toValue: 1,
-        duration: 100,
-        useNativeDriver: true,
-      }),
-    ]).start();
+    // Check authentication first
+    const proceedWithDirections = () => {
+      // Add button press animation
+      Animated.sequence([
+        Animated.timing(buttonScale, {
+          toValue: 0.95,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(buttonScale, {
+          toValue: 1,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+      ]).start();
 
-    const url = `geo:${place.latitude},${place.longitude}?q=${place.latitude},${place.longitude}(${place.title})`;
+      const url = `geo:${place.latitude},${place.longitude}?q=${place.latitude},${place.longitude}(${place.title})`;
 
-    Linking.canOpenURL(url)
-      .then((supported) => {
-        if (supported) {
-          return Linking.openURL(url);
-        } else {
-          Alert.alert("Error", "Unable to open maps application");
-        }
-      })
-      .catch((err) => {
-        console.error("Error opening maps:", err);
-        Alert.alert("Error", "Unable to open directions");
-      });
+      Linking.canOpenURL(url)
+        .then((supported) => {
+          if (supported) {
+            return Linking.openURL(url);
+          } else {
+            Alert.alert(t('error') || 'Error', "Unable to open maps application");
+          }
+        })
+        .catch((err) => {
+          console.error("Error opening maps:", err);
+          Alert.alert(t('error') || 'Error', "Unable to open directions");
+        });
+    };
+
+    // Require authentication for directions
+    requireDirectionsAuth(navigation, proceedWithDirections);
   };
 
   const handleCall = () => {
@@ -210,7 +252,7 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
       Alert.alert(
         "No Contact Number", 
         "The place owner hasn't provided a contact number yet.",
-        [{ text: "OK" }]
+        [{ text: t('ok') || 'OK' }]
       );
       return;
     }
@@ -222,12 +264,12 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
         if (supported) {
           return Linking.openURL(phoneUrl);
         } else {
-          Alert.alert("Error", "Unable to make phone calls");
+          Alert.alert(t('error') || 'Error', "Unable to make phone calls");
         }
       })
       .catch((err) => {
         console.error("Error making call:", err);
-        Alert.alert("Error", "Unable to make call");
+        Alert.alert(t('error') || 'Error', "Unable to make call");
       });
   };
 
@@ -237,38 +279,83 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
       Alert.alert(
         "No WhatsApp Number", 
         "The place owner hasn't provided a WhatsApp number yet.",
-        [{ text: "OK" }]
+        [{ text: t('ok') || 'OK' }]
       );
       return;
     }
-    
-    // Remove any non-numeric characters and ensure proper format
-    const cleanNumber = place.whatsapp_number.replace(/[^0-9]/g, '');
-    const message = `Hi! I found your place "${place?.title}" on Mawqif app. I'd like to know more about it.`;
-    const whatsappUrl = `whatsapp://send?phone=${cleanNumber}&text=${encodeURIComponent(message)}`;
-    
-    Linking.canOpenURL(whatsappUrl)
-      .then((supported) => {
-        if (supported) {
-          return Linking.openURL(whatsappUrl);
+
+    // Check authentication first
+    const proceedWithWhatsApp = () => {
+      // Remove any non-numeric characters and ensure proper format
+      const cleanNumber = (place.whatsapp_number || '').replace(/[^0-9]/g, '');
+      const message = `Hi! I found your place "${place?.title || 'Unknown Place'}" on Mawqif app. I'd like to know more about it.`;
+      const whatsappUrl = `whatsapp://send?phone=${cleanNumber}&text=${encodeURIComponent(message)}`;
+      
+      Linking.canOpenURL(whatsappUrl)
+        .then((supported) => {
+          if (supported) {
+            return Linking.openURL(whatsappUrl);
+          } else {
+            // Fallback to web WhatsApp
+            const webWhatsappUrl = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(message)}`;
+            return Linking.openURL(webWhatsappUrl);
+          }
+        })
+        .catch((err) => {
+          console.error("Error opening WhatsApp:", err);
+          Alert.alert(t('error') || 'Error', "Unable to open WhatsApp");
+        });
+    };
+
+    // Require authentication for WhatsApp contact
+    requireWhatsAppAuth(navigation, proceedWithWhatsApp);
+  };
+
+  const handleBookmark = () => {
+    if (!place) return;
+
+    // Check authentication first
+    const proceedWithBookmark = async () => {
+      if (!user?.uid) return;
+
+      try {
+        setBookmarkLoading(true);
+        const newBookmarkStatus = await BookmarksService.toggleBookmark(user.uid, place.id);
+        setIsBookmarked(newBookmarkStatus);
+        
+        const message = newBookmarkStatus ? (t('bookmarkAdded') || 'Place bookmarked successfully!') : (t('bookmarkRemoved') || 'Bookmark removed successfully!');
+        Alert.alert(t('success') || 'Success', message);
+      } catch (error) {
+        console.error('Error toggling bookmark:', error);
+        
+        // Check if it's a table missing error
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (errorMessage.includes('relation "bookmarks" does not exist') || 
+            errorMessage.includes('table "bookmarks" does not exist')) {
+          Alert.alert(
+            'Database Setup Required',
+            'The bookmarks feature requires database setup. Please run the COMPLETE_REVIEWS_AND_BOOKMARKS_FIX.sql script in your Supabase SQL Editor.',
+            [{ text: t('ok') || 'OK' }]
+          );
         } else {
-          // Fallback to web WhatsApp
-          const webWhatsappUrl = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(message)}`;
-          return Linking.openURL(webWhatsappUrl);
+          Alert.alert(t('error') || 'Error', t('failedToUpdateBookmark') || 'Failed to update bookmark');
         }
-      })
-      .catch((err) => {
-        console.error("Error opening WhatsApp:", err);
-        Alert.alert("Error", "Unable to open WhatsApp");
-      });
+      } finally {
+        setBookmarkLoading(false);
+      }
+    };
+
+    // Require authentication for bookmarking
+    requireBookmarkAuth(navigation, proceedWithBookmark);
   };
 
   // Review handling functions
   const handleAddReview = async (rating: number, comment: string) => {
     try {
       console.log('🔄 Adding review:', { placeId, currentUserId, rating, comment });
-      await ReviewsService.addReview(placeId, currentUserId, 'Current User', rating, comment);
-      Alert.alert('Success', 'Your review has been added successfully!');
+      const userName = getUserDisplayName();
+      await ReviewsService.addReview(placeId, currentUserId, userName, rating, comment);
+      Alert.alert(t('success') || 'Success', 'Your review has been added successfully!');
       fetchReviews(); // Refresh reviews
       fetchPlaceDetails(); // Refresh place rating
     } catch (error) {
@@ -276,7 +363,7 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
       
       // Show more detailed error message
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      Alert.alert('Error', `Unable to add review: ${errorMessage}`);
+      Alert.alert(t('error') || 'Error', `Unable to add review: ${errorMessage}`);
     }
   };
 
@@ -302,11 +389,11 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
     try {
       const isOwner = currentUserId === place?.owner_id;
       await ReviewsService.addReply(reviewId, currentUserId, 'Current User', comment, isOwner);
-      Alert.alert('Success', 'Your reply has been added successfully!');
+      Alert.alert(t('success') || 'Success', 'Your reply has been added successfully!');
       fetchReviews(); // Refresh to show new reply
     } catch (error) {
       console.error('Error adding reply:', error);
-      Alert.alert('Error', 'Unable to add reply. Please try again.');
+      Alert.alert(t('error') || 'Error', 'Unable to add reply. Please try again.');
     }
   };
 
@@ -316,7 +403,7 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
       Alert.alert('Reported', 'Thank you for reporting. We will review this content.');
     } catch (error) {
       console.error('Error reporting review:', error);
-      Alert.alert('Error', 'Unable to report review. Please try again.');
+      Alert.alert(t('error') || 'Error', 'Unable to report review. Please try again.');
     }
   };
 
@@ -328,7 +415,7 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
       fetchPlaceDetails(); // Refresh place rating
     } catch (error) {
       console.error('Error deleting review:', error);
-      Alert.alert('Error', 'Unable to delete review. Please try again.');
+      Alert.alert(t('error') || 'Error', 'Unable to delete review. Please try again.');
     }
   };
 
@@ -340,7 +427,7 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
     return (
       <View style={styles.container}>
         <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading...</Text>
+          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>{t('loading') || 'Loading...'}</Text>
         </View>
       </View>
     );
@@ -350,14 +437,13 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
     return (
       <View style={styles.container}>
         <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>Place not found</Text>
+          <Text style={[styles.errorText, { color: colors.error }]}>Place not found</Text>
         </View>
       </View>
     );
   }
 
-  const placeTypeLabel =
-    PLACE_TYPES.find((type) => type.value === place.type)?.label || place.type;
+  const placeTypeLabel = t(place.type);
   const distanceText = place.distance
     ? LocationService.formatDistance(place.distance)
     : "";
@@ -369,7 +455,7 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
     .filter(([_, value]) => value)
     .map(([key, _]) => ({
       key,
-      label: key.replace("_", " ").replace(/\b\w/g, (l) => l.toUpperCase()),
+      label: t(key),
     }));
 
   // Get all images (multiple photos or single photo)
@@ -382,8 +468,8 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
   const renderImageCarousel = () => {
     if (allImages.length === 0) {
       return (
-        <View style={styles.placeholderImage}>
-          <MaterialIcons name="location-on" size={rf(64)} color={COLORS.textSecondary} />
+        <View style={[styles.placeholderImage, { backgroundColor: colors.primaryLight }]}>
+          <MaterialIcons name="location-on" size={rf(64)} color={colors.textSecondary} />
         </View>
       );
     }
@@ -418,7 +504,7 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
               key={index}
               style={[
                 styles.indicator,
-                currentImageIndex === index && styles.activeIndicator,
+                currentImageIndex === index && [styles.activeIndicator, { backgroundColor: colors.surface }],
               ]}
             />
           ))}
@@ -428,7 +514,7 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <Animated.ScrollView 
         style={styles.scrollView}
         onScroll={Animated.event(
@@ -444,20 +530,40 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
         </View>
 
         <View style={styles.content}>
-          {/* Header with Title and Type */}
+          {/* Header with Title, Type, and Bookmark */}
           <View style={styles.header}>
             <View style={styles.titleContainer}>
-              <Text style={styles.title}>{place.title}</Text>
+              <Text style={[styles.title, { color: colors.text }]}>{place.title}</Text>
               {/* Address below title */}
               {place.address && (
                 <View style={styles.addressContainer}>
-                  <MaterialIcons name="location-on" size={rf(16)} color={COLORS.textSecondary} />
-                  <Text style={styles.addressText}>{place.address}</Text>
+                  <MaterialIcons name="location-on" size={rf(16)} color={colors.textSecondary} />
+                  <Text style={[styles.addressText, { color: colors.textSecondary }]}>{place.address}</Text>
                 </View>
               )}
             </View>
-            <View style={styles.typeBadge}>
-              <Text style={styles.typeText}>{placeTypeLabel}</Text>
+            
+            <View style={styles.headerActions}>
+              <View style={[styles.typeBadge, { backgroundColor: colors.primary }]}>
+                <Text style={[styles.typeText, { color: colors.surface }]}>{placeTypeLabel}</Text>
+              </View>
+              
+              {/* Bookmark Button */}
+              <TouchableOpacity
+                style={[styles.bookmarkButton, { backgroundColor: isBookmarked ? colors.primary : colors.surface }]}
+                onPress={handleBookmark}
+                disabled={bookmarkLoading}
+              >
+                {bookmarkLoading ? (
+                  <ActivityIndicator size="small" color={colors.primary} />
+                ) : (
+                  <MaterialIcons 
+                    name={isBookmarked ? "bookmark" : "bookmark-border"} 
+                    size={rf(24)} 
+                    color={isBookmarked ? colors.textInverse : colors.textSecondary} 
+                  />
+                )}
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -494,32 +600,32 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
 
             {/* Location Info */}
             <View style={styles.locationDetails}>
-              {distanceText ? <Text style={styles.distance}>{distanceText}</Text> : null}
-              {walkingTime ? <Text style={styles.walkingTime}>{walkingTime}</Text> : null}
-              <Text style={styles.city}>{place.city}</Text>
+              {distanceText ? <Text style={[styles.distance, { color: colors.primary }]}>{distanceText}</Text> : null}
+              {walkingTime ? <Text style={[styles.walkingTime, { color: colors.textSecondary }]}>{walkingTime}</Text> : null}
+              <Text style={[styles.city, { color: colors.textSecondary }]}>{place.city}</Text>
             </View>
           </View>
 
           {/* Capacity */}
           {place.capacity && (
             <View style={styles.capacityContainer}>
-              <Text style={styles.capacityLabel}>Capacity:</Text>
-              <Text style={styles.capacityValue}>{place.capacity} people</Text>
+              <Text style={[styles.capacityLabel, { color: colors.text }]}>{t('capacity') || 'Capacity'}:</Text>
+              <Text style={[styles.capacityValue, { color: colors.primary }]}>{place.capacity} people</Text>
             </View>
           )}
 
           {/* Amenities - Professional icons instead of emojis */}
           {amenities.length > 0 && (
             <View style={styles.amenitiesContainer}>
-              <Text style={styles.amenitiesTitle}>Available Amenities:</Text>
+              <Text style={[styles.amenitiesTitle, { color: colors.text }]}>{t('availableAmenities') || 'Available Amenities'}:</Text>
               <View style={styles.amenitiesList}>
                 {amenities.map((amenity) => (
-                  <View key={amenity.key} style={styles.amenityItem}>
+                  <View key={amenity.key} style={[styles.amenityItem, { backgroundColor: colors.background, borderColor: colors.border }]}>
                     {/* Professional amenity icons - Optimal size for clarity */}
                     {amenity.key === 'wuzu' && <MaterialIcons name="water-drop" size={rf(20)} color="#6B7280" style={styles.amenityIconStyle} />}
                     {amenity.key === 'washroom' && <MaterialIcons name="bathroom" size={rf(20)} color="#6B7280" style={styles.amenityIconStyle} />}
                     {amenity.key === 'women_area' && <MaterialIcons name="female" size={rf(20)} color="#6B7280" style={styles.amenityIconStyle} />}
-                    <Text style={styles.amenityLabel}>{amenity.label}</Text>
+                    <Text style={[styles.amenityLabel, { color: colors.textSecondary }]}>{amenity.label}</Text>
                   </View>
                 ))}
               </View>
@@ -528,17 +634,17 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
 
           {/* Contact Information - Always show */}
           <View style={styles.contactContainer}>
-            <Text style={styles.contactTitle}>Contact Information:</Text>
+            <Text style={[styles.contactTitle, { color: colors.text }]}>{t('contactInformation') || 'Contact Information'}</Text>
             
             <TouchableOpacity 
-              style={styles.contactButton}
+              style={[styles.contactButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
               onPress={handleCall}
             >
-              <MaterialIcons name="call" size={rf(28)} color={COLORS.primary} style={styles.contactIcon} />
+              <MaterialIcons name="call" size={rf(28)} color={colors.primary} style={styles.contactIcon} />
               <View style={styles.contactInfo}>
-                <Text style={styles.contactLabel}>Call</Text>
-                <Text style={styles.contactNumber}>
-                  {place.contact_phone || "Not provided"}
+                <Text style={[styles.contactLabel, { color: colors.text }]}>{t('call') || 'Call'}</Text>
+                <Text style={[styles.contactNumber, { color: colors.textSecondary }]}>
+                  {place.contact_phone || t('notProvided') || 'Not provided'}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -549,18 +655,18 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
             >
               <Ionicons name="logo-whatsapp" size={rf(28)} color="#25D366" style={styles.whatsappIcon} />
               <View style={styles.contactInfo}>
-                <Text style={styles.whatsappLabel}>WhatsApp</Text>
-                <Text style={styles.contactNumber}>
-                  {place.whatsapp_number ? "Chat" : "Not provided"}
+                <Text style={styles.whatsappLabel}>{t('whatsapp') || 'WhatsApp'}</Text>
+                <Text style={[styles.contactNumber, { color: colors.textSecondary }]}>
+                  {place.whatsapp_number ? "Chat" : t('notProvided') || 'Not provided'}
                 </Text>
               </View>
             </TouchableOpacity>
           </View>
 
           {/* Review Section Hint */}
-          <View style={styles.reviewHintContainer}>
-            <Text style={styles.reviewHintText}>
-              <MaterialIcons name="reviews" size={rf(20)} color={COLORS.textSecondary} style={{ marginRight: rs(6) }} />
+          <View style={[styles.reviewHintContainer, { backgroundColor: 'rgba(76, 175, 80, 0.05)', borderLeftColor: colors.primary }]}>
+            <Text style={[styles.reviewHintText, { color: colors.textSecondary }]}>
+              <MaterialIcons name="reviews" size={rf(20)} color={colors.textSecondary} style={{ marginRight: rs(6) }} />
               Check reviews and ratings from other users below
             </Text>
           </View>
@@ -579,21 +685,22 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
             onDeleteReview={handleDeleteReview}
             onSortChange={handleSortChange}
             currentSort={reviewSort}
+            navigation={navigation}
           />
 
         </View>
       </Animated.ScrollView>
 
       {/* Floating Get Directions Button */}
-      <Animated.View style={[styles.floatingDirectionsButton, { transform: [{ scale: buttonScale }] }]}>
+      <Animated.View style={[styles.floatingDirectionsButton, { backgroundColor: colors.primary }]}>
         <TouchableOpacity
           style={styles.floatingButtonTouchable}
           onPress={handleGetDirections}
           activeOpacity={0.8}
         >
           <View style={styles.floatingDirectionsContent}>
-            <MaterialIcons name="navigation" size={rf(24)} color={COLORS.surface} />
-            <Text style={styles.floatingDirectionsText}>Get Directions</Text>
+            <MaterialIcons name="navigation" size={rf(24)} color={colors.surface} />
+            <Text style={[styles.floatingDirectionsText, { color: colors.surface }]}>{t('getDirections') || 'Get Directions'}</Text>
           </View>
         </TouchableOpacity>
       </Animated.View>
@@ -604,7 +711,6 @@ export const PlaceDetailScreen: React.FC<PlaceDetailScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.background,
   },
 
   scrollView: {
@@ -617,7 +723,6 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: rf(16),
-    color: COLORS.textSecondary,
   },
   errorContainer: {
     flex: 1,
@@ -626,13 +731,11 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: rf(16),
-    color: COLORS.error,
   },
   
   // Image Carousel Styles
   imageContainer: {
     height: 300,
-    backgroundColor: COLORS.surface,
   },
   carouselContainer: {
     position: 'relative',
@@ -658,7 +761,6 @@ const styles = StyleSheet.create({
     marginHorizontal: rs(4),
   },
   activeIndicator: {
-    backgroundColor: COLORS.surface,
     width: rs(12),
     height: rs(12),
     borderRadius: rs(6),
@@ -668,7 +770,6 @@ const styles = StyleSheet.create({
     height: "100%",
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: COLORS.background,
   },
 
   
@@ -686,13 +787,16 @@ const styles = StyleSheet.create({
   title: {
     fontSize: responsiveDimensions.titleSize,
     fontWeight: "600",
-    color: COLORS.text,
     flex: 1,
     marginRight: rs(12),
   },
   titleContainer: {
     flex: 1,
     marginRight: rs(12),
+  },
+  headerActions: {
+    alignItems: 'flex-end',
+    gap: rs(8),
   },
   addressContainer: {
     flexDirection: 'row',
@@ -701,21 +805,32 @@ const styles = StyleSheet.create({
   },
   addressText: {
     fontSize: rf(14),
-    color: COLORS.textSecondary,
     marginLeft: rs(4),
     flex: 1,
     fontWeight: '500',
   },
   typeBadge: {
-    backgroundColor: COLORS.primary,
     paddingHorizontal: rs(12),
     paddingVertical: rs(6),
     borderRadius: rs(16),
   },
   typeText: {
     fontSize: rf(14),
-    color: COLORS.surface,
     fontWeight: "500",
+  },
+  
+  // Bookmark Button
+  bookmarkButton: {
+    width: rs(44),
+    height: rs(44),
+    borderRadius: rs(22),
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: rs(2) },
+    shadowOpacity: 0.2,
+    shadowRadius: rs(3),
   },
   
   // Star Rating Styles - Clean and professional
@@ -735,7 +850,6 @@ const styles = StyleSheet.create({
   },
   ratingText: {
     fontSize: rf(14),
-    color: COLORS.text,
     fontWeight: '600',
   },
   
@@ -784,16 +898,13 @@ const styles = StyleSheet.create({
   distance: {
     fontSize: rf(18),
     fontWeight: "600",
-    color: COLORS.primary,
   },
   walkingTime: {
     fontSize: rf(14),
-    color: COLORS.textSecondary,
     marginTop: rs(1),
   },
   city: {
     fontSize: rf(14),
-    color: COLORS.textSecondary,
     marginTop: rs(2),
   },
   
@@ -805,13 +916,11 @@ const styles = StyleSheet.create({
   },
   capacityLabel: {
     fontSize: 16,
-    color: COLORS.text,
     marginRight: 8,
   },
   capacityValue: {
     fontSize: 16,
     fontWeight: "600",
-    color: COLORS.primary,
   },
   
   // Amenities
@@ -821,7 +930,6 @@ const styles = StyleSheet.create({
   amenitiesTitle: {
     fontSize: rf(16),
     fontWeight: "600",
-    color: COLORS.text,
     marginBottom: rs(10),
   },
   amenitiesList: {
@@ -832,19 +940,16 @@ const styles = StyleSheet.create({
   amenityItem: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: COLORS.background,
     paddingHorizontal: rs(12),
     paddingVertical: rs(8),
     borderRadius: rs(20),
     borderWidth: 1,
-    borderColor: COLORS.border,
   },
   amenityIconStyle: {
     marginRight: rs(6),
   },
   amenityLabel: {
     fontSize: rf(12),
-    color: COLORS.textSecondary,
     fontWeight: '500',
   },
   
@@ -855,18 +960,15 @@ const styles = StyleSheet.create({
   contactTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: COLORS.text,
     marginBottom: 8,
   },
   contactButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.surface,
     padding: 12,
     borderRadius: 10,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: COLORS.border,
   },
   whatsappButton: {
     flexDirection: 'row',
@@ -890,7 +992,6 @@ const styles = StyleSheet.create({
   contactLabel: {
     fontSize: 16,
     fontWeight: '600',
-    color: COLORS.text,
     marginBottom: 2,
   },
   whatsappLabel: {
@@ -901,21 +1002,17 @@ const styles = StyleSheet.create({
   },
   contactNumber: {
     fontSize: 14,
-    color: COLORS.textSecondary,
   },
   
   // Review Hint
   reviewHintContainer: {
-    backgroundColor: 'rgba(76, 175, 80, 0.05)',
     padding: 10,
     borderRadius: 8,
     marginBottom: 12,
     borderLeftWidth: 3,
-    borderLeftColor: COLORS.primary,
   },
   reviewHintText: {
     fontSize: 13,
-    color: COLORS.textSecondary,
     fontStyle: 'italic',
     textAlign: 'center',
   },
@@ -926,10 +1023,8 @@ const styles = StyleSheet.create({
     bottom: 20,
     left: 16,
     right: 16,
-    backgroundColor: COLORS.primary,
     borderRadius: 12,
     elevation: 8,
-    shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 8,
@@ -951,7 +1046,6 @@ const styles = StyleSheet.create({
   floatingDirectionsText: {
     fontSize: rf(18),
     fontWeight: "700",
-    color: COLORS.surface,
     flexShrink: 0,
     marginLeft: rs(8), // Add margin instead of style prop
   },

@@ -8,7 +8,8 @@ import {
   Text,
 } from "react-native";
 import { MaterialIcons, Feather } from '@expo/vector-icons';
-import { COLORS } from "../utils/constants";
+import { useTheme } from "../contexts/ThemeContext";
+import { useLanguage } from "../contexts/LanguageContext";
 import { getResponsiveDimensions, rs, rf } from "../utils/responsive";
 
 interface SearchBarProps {
@@ -22,16 +23,21 @@ export const SearchBar: React.FC<SearchBarProps> = React.memo(({
   value,
   onChangeText,
   onFilterPress,
-  placeholder = "Search city, masjid, address...",
+  placeholder,
 }) => {
+  const { colors } = useTheme();
+  const { t } = useLanguage();
+  
+  const defaultPlaceholder = placeholder || t('searchPlaceholder');
+  
   return (
-    <View style={styles.container}>
-      <View style={styles.searchInputContainer}>
-        <MaterialIcons name="search" size={rf(24)} color={COLORS.textSecondary} style={styles.searchIcon} />
+    <View style={[styles.container, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+      <View style={[styles.searchInputContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
+        <MaterialIcons name="search" size={rf(24)} color={colors.textSecondary} style={styles.searchIcon} />
         <TextInput
-          style={styles.searchInput}
-          placeholder={placeholder}
-          placeholderTextColor={COLORS.textSecondary}
+          style={[styles.searchInput, { color: colors.text }]}
+          placeholder={defaultPlaceholder}
+          placeholderTextColor={colors.textSecondary}
           value={value}
           onChangeText={onChangeText}
           clearButtonMode="while-editing"
@@ -39,8 +45,8 @@ export const SearchBar: React.FC<SearchBarProps> = React.memo(({
           autoCapitalize="none"
         />
       </View>
-      <TouchableOpacity style={styles.filterButton} onPress={onFilterPress}>
-        <Feather name="filter" size={rf(24)} color={COLORS.surface} />
+      <TouchableOpacity style={[styles.filterButton, { backgroundColor: colors.primary }]} onPress={onFilterPress}>
+        <Feather name="filter" size={rf(24)} color={colors.textInverse} />
       </TouchableOpacity>
     </View>
   );
@@ -54,12 +60,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: rs(16),
     paddingVertical: rs(12),
-    backgroundColor: COLORS.surface,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
     gap: rs(8),
     elevation: 2,
-    shadowColor: COLORS.shadow,
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: rs(2) },
     shadowOpacity: 0.08,
     shadowRadius: rs(3),
@@ -68,11 +72,9 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: COLORS.background,
     borderRadius: rs(24),
     paddingHorizontal: rs(12),
     borderWidth: 1.5,
-    borderColor: COLORS.border,
     minHeight: responsiveDimensions.inputHeight,
   },
   searchIcon: {
@@ -82,18 +84,16 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: rs(10),
     fontSize: rf(16),
-    color: COLORS.text,
     fontWeight: '500',
   },
   filterButton: {
     width: responsiveDimensions.buttonHeight,
     height: responsiveDimensions.buttonHeight,
     borderRadius: responsiveDimensions.buttonHeight / 2,
-    backgroundColor: COLORS.primary,
     justifyContent: "center",
     alignItems: "center",
     elevation: 3,
-    shadowColor: COLORS.shadow,
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: rs(2) },
     shadowOpacity: 0.15,
     shadowRadius: rs(3),

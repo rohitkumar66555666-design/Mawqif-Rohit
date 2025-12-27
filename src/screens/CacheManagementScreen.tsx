@@ -9,7 +9,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { COLORS } from '../utils/constants';
+import { useTheme } from '../contexts/ThemeContext';
 import { rf, rs } from '../utils/responsive';
 import { CacheService } from '../services/cache.service';
 
@@ -18,6 +18,7 @@ interface CacheManagementScreenProps {
 }
 
 export const CacheManagementScreen: React.FC<CacheManagementScreenProps> = () => {
+  const { colors } = useTheme();
   const [cacheStats, setCacheStats] = useState({
     placesCount: 0,
     lastUpdate: 'Never',
@@ -94,6 +95,127 @@ export const CacheManagementScreen: React.FC<CacheManagementScreenProps> = () =>
     );
   };
 
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    scrollView: {
+      flex: 1,
+      padding: rs(16),
+    },
+    statusCard: {
+      padding: rs(16),
+      borderRadius: rs(12),
+      marginBottom: rs(16),
+      borderWidth: 1,
+    },
+    onlineCard: {
+      backgroundColor: 'rgba(76, 175, 80, 0.1)',
+      borderColor: '#4CAF50',
+    },
+    offlineCard: {
+      backgroundColor: 'rgba(255, 107, 53, 0.1)',
+      borderColor: '#FF6B35',
+    },
+    statusHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: rs(8),
+    },
+    statusTitle: {
+      fontSize: rf(18),
+      fontWeight: '700',
+      color: colors.text,
+      marginLeft: rs(12),
+    },
+    statusDescription: {
+      fontSize: rf(14),
+      color: colors.textSecondary,
+      lineHeight: rf(20),
+    },
+    card: {
+      backgroundColor: colors.surface,
+      padding: rs(16),
+      borderRadius: rs(12),
+      marginBottom: rs(16),
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    cardTitle: {
+      fontSize: rf(16),
+      fontWeight: '700',
+      color: colors.text,
+      marginBottom: rs(16),
+    },
+    statRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: rs(12),
+    },
+    statLabel: {
+      fontSize: rf(14),
+      color: colors.text,
+      marginLeft: rs(12),
+      flex: 1,
+    },
+    statValue: {
+      fontSize: rf(14),
+      fontWeight: '600',
+      color: colors.primary,
+    },
+    featureRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: rs(8),
+    },
+    featureText: {
+      fontSize: rf(14),
+      color: colors.text,
+      marginLeft: rs(12),
+      flex: 1,
+    },
+    actionButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: rs(12),
+      borderRadius: rs(8),
+      backgroundColor: colors.background,
+      marginBottom: rs(8),
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    dangerButton: {
+      backgroundColor: 'rgba(244, 67, 54, 0.1)',
+      borderColor: '#F44336',
+    },
+    actionButtonText: {
+      fontSize: rf(14),
+      fontWeight: '600',
+      color: colors.text,
+      marginLeft: rs(12),
+    },
+    dangerButtonText: {
+      color: '#F44336',
+    },
+    infoCard: {
+      flexDirection: 'row',
+      padding: rs(16),
+      backgroundColor: 'rgba(33, 150, 243, 0.1)',
+      borderRadius: rs(12),
+      borderWidth: 1,
+      borderColor: '#2196F3',
+      marginBottom: rs(16),
+    },
+    infoText: {
+      fontSize: rf(13),
+      color: colors.textSecondary,
+      marginLeft: rs(12),
+      flex: 1,
+      lineHeight: rf(18),
+    },
+  });
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -127,19 +249,19 @@ export const CacheManagementScreen: React.FC<CacheManagementScreenProps> = () =>
           <Text style={styles.cardTitle}>Cache Statistics</Text>
           
           <View style={styles.statRow}>
-            <MaterialIcons name="place" size={rf(20)} color={COLORS.primary} />
+            <MaterialIcons name="place" size={rf(20)} color={colors.primary} />
             <Text style={styles.statLabel}>Cached Places</Text>
             <Text style={styles.statValue}>{cacheStats.placesCount}</Text>
           </View>
 
           <View style={styles.statRow}>
-            <MaterialIcons name="update" size={rf(20)} color={COLORS.primary} />
+            <MaterialIcons name="update" size={rf(20)} color={colors.primary} />
             <Text style={styles.statLabel}>Last Update</Text>
             <Text style={styles.statValue}>{cacheStats.lastUpdate}</Text>
           </View>
 
           <View style={styles.statRow}>
-            <MaterialIcons name="storage" size={rf(20)} color={COLORS.primary} />
+            <MaterialIcons name="storage" size={rf(20)} color={colors.primary} />
             <Text style={styles.statLabel}>Cache Size</Text>
             <Text style={styles.statValue}>{cacheStats.cacheSize}</Text>
           </View>
@@ -187,7 +309,7 @@ export const CacheManagementScreen: React.FC<CacheManagementScreenProps> = () =>
 
         {/* Information */}
         <View style={styles.infoCard}>
-          <MaterialIcons name="info" size={rf(20)} color={COLORS.primary} />
+          <MaterialIcons name="info" size={rf(20)} color={colors.primary} />
           <Text style={styles.infoText}>
             Cache is automatically updated when you have internet connection. 
             Cached data helps you access places even when offline.
@@ -197,124 +319,3 @@ export const CacheManagementScreen: React.FC<CacheManagementScreenProps> = () =>
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
-  scrollView: {
-    flex: 1,
-    padding: rs(16),
-  },
-  statusCard: {
-    padding: rs(16),
-    borderRadius: rs(12),
-    marginBottom: rs(16),
-    borderWidth: 1,
-  },
-  onlineCard: {
-    backgroundColor: 'rgba(76, 175, 80, 0.1)',
-    borderColor: '#4CAF50',
-  },
-  offlineCard: {
-    backgroundColor: 'rgba(255, 107, 53, 0.1)',
-    borderColor: '#FF6B35',
-  },
-  statusHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: rs(8),
-  },
-  statusTitle: {
-    fontSize: rf(18),
-    fontWeight: '700',
-    color: COLORS.text,
-    marginLeft: rs(12),
-  },
-  statusDescription: {
-    fontSize: rf(14),
-    color: COLORS.textSecondary,
-    lineHeight: rf(20),
-  },
-  card: {
-    backgroundColor: COLORS.surface,
-    padding: rs(16),
-    borderRadius: rs(12),
-    marginBottom: rs(16),
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  cardTitle: {
-    fontSize: rf(16),
-    fontWeight: '700',
-    color: COLORS.text,
-    marginBottom: rs(16),
-  },
-  statRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: rs(12),
-  },
-  statLabel: {
-    fontSize: rf(14),
-    color: COLORS.text,
-    marginLeft: rs(12),
-    flex: 1,
-  },
-  statValue: {
-    fontSize: rf(14),
-    fontWeight: '600',
-    color: COLORS.primary,
-  },
-  featureRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: rs(8),
-  },
-  featureText: {
-    fontSize: rf(14),
-    color: COLORS.text,
-    marginLeft: rs(12),
-    flex: 1,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: rs(12),
-    borderRadius: rs(8),
-    backgroundColor: COLORS.background,
-    marginBottom: rs(8),
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  dangerButton: {
-    backgroundColor: 'rgba(244, 67, 54, 0.1)',
-    borderColor: '#F44336',
-  },
-  actionButtonText: {
-    fontSize: rf(14),
-    fontWeight: '600',
-    color: COLORS.text,
-    marginLeft: rs(12),
-  },
-  dangerButtonText: {
-    color: '#F44336',
-  },
-  infoCard: {
-    flexDirection: 'row',
-    padding: rs(16),
-    backgroundColor: 'rgba(33, 150, 243, 0.1)',
-    borderRadius: rs(12),
-    borderWidth: 1,
-    borderColor: '#2196F3',
-    marginBottom: rs(16),
-  },
-  infoText: {
-    fontSize: rf(13),
-    color: COLORS.textSecondary,
-    marginLeft: rs(12),
-    flex: 1,
-    lineHeight: rf(18),
-  },
-});

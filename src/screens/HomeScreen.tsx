@@ -14,12 +14,12 @@ import { Place, Location } from "../types";
 import { PlaceCard } from "../components/PlaceCard";
 import { SearchBar } from "../components/SearchBar";
 import { FilterModal, FilterOptions } from "../components/FilterModal";
-
+import { useTheme } from "../contexts/ThemeContext";
+import { useLanguage } from "../contexts/LanguageContext";
 
 import { LocationService } from "../services/location.service";
 import { PlacesService } from "../services/places.service";
 import { ImageUploadService } from "../services/image-upload.service";
-import { COLORS } from "../utils/constants";
 import { getResponsiveDimensions, rs, rf } from "../utils/responsive";
 import { ImageDebugger } from "../utils/imageDebug";
 
@@ -28,6 +28,8 @@ interface HomeScreenProps {
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
+  const { theme, colors } = useTheme();
+  const { t } = useLanguage();
   const [places, setPlaces] = useState<Place[]>([]);
   const [allPlaces, setAllPlaces] = useState<Place[]>([]);
   const [loading, setLoading] = useState(true);
@@ -92,9 +94,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       // Request location permission
       const hasPermission = await LocationService.requestPermission();
       if (!hasPermission) {
-        setError(
-          "Location permission is required to find nearby prayer spaces"
-        );
+        setError(t('locationPermissionRequired'));
         setLoading(false);
         return;
       }
@@ -108,7 +108,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 
     } catch (err) {
       console.error("Error initializing location:", err);
-      setError("Unable to get your location. Please check your GPS settings.");
+      setError(t('unableToGetLocation'));
       setLoading(false);
     }
   };
@@ -149,12 +149,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       } else {
         console.log(`⚠️ No places found in database`);
         setAllPlaces([]);
-        setError("No places found in your area.");
+        setError(t('noPlacesInArea'));
       }
 
     } catch (err) {
       console.error("❌ Error fetching places:", err);
-      setError("Unable to load places. Please check your internet connection and try again.");
+      setError(t('noInternetConnection'));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -312,19 +312,19 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       {/* Debug info and refresh button */}
       <View style={styles.debugContainer}>
         <Text style={styles.debugText}>
-          Showing {places.length} of {allPlaces.length} places
+          {t('showing')} {places.length} {t('of')} {allPlaces.length} {t('places')}
         </Text>
         <View style={styles.debugButtons}>
           <TouchableOpacity 
-            style={styles.refreshButton} 
+            style={[styles.refreshButton, { backgroundColor: colors.surface, borderColor: colors.primary }]} 
             onPress={() => {
               console.log('🔄 Manual refresh triggered');
               setHasLoadedData(false); // Reset to allow fresh data load
               fetchNearbyPlaces(true);
             }}
           >
-            <MaterialIcons name="refresh" size={rf(20)} color={COLORS.primary} />
-            <Text style={styles.refreshText}>Refresh</Text>
+            <MaterialIcons name="refresh" size={rf(20)} color={colors.primary} />
+            <Text style={[styles.refreshText, { color: colors.primary }]}>{t('refresh')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -333,8 +333,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 
   // Memoized render function for PlaceCard to prevent unnecessary re-renders
   const renderPlaceCard = useCallback(({ item }: { item: Place }) => (
-    <PlaceCard place={item} onPress={() => handlePlacePress(item)} />
-  ), []);
+    <PlaceCard place={item} onPress={() => handlePlacePress(item)} navigation={navigation} />
+  ), [navigation]);
 
   const handlePlacePress = useCallback((place: Place) => {
     navigation.navigate("PlaceDetail", { placeId: place.id });
@@ -357,17 +357,17 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const renderEmptyState = () => (
     <View style={styles.emptyContainer}>
       <View style={styles.emptyIconContainer}>
-        <MaterialIcons name="location-on" size={rf(56)} color={COLORS.textSecondary} />
+        <MaterialIcons name="location-on" size={rf(56)} color={colors.textSecondary} />
       </View>
-      <Text style={styles.emptyTitle}>No prayer spaces found</Text>
-      <Text style={styles.emptySubtitle}>
+      <Text style={[styles.emptyTitle, { color: colors.text }]}>{t('noPrayerSpaces')}</Text>
+      <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
         {filters.radius 
-          ? `No places found within ${filters.radius / 1000}km of your location.`
-          : 'No places found in your area.'
+          ? t('noPlacesWithinRadius').replace('{radius}', (filters.radius / 1000).toString())
+          : t('noPlacesInArea')
         }
       </Text>
-      <Text style={styles.emptyHint}>
-        Tap "Add Place" below to add a prayer space in this area.
+      <Text style={[styles.emptyHint, { color: colors.textSecondary }]}>
+        {t('tapAddPlace')}
       </Text>
     </View>
   );
@@ -375,33 +375,33 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const renderErrorState = () => (
     <View style={styles.errorContainer}>
       <View style={styles.errorIconContainer}>
-        <MaterialIcons name="error" size={rf(56)} color={COLORS.error} />
+        <MaterialIcons name="error" size={rf(56)} color={colors.error} />
       </View>
-      <Text style={styles.errorTitle}>Unable to load places</Text>
-      <Text style={styles.errorSubtitle}>{error}</Text>
-      <TouchableOpacity style={styles.retryButton} onPress={onRefresh}>
-        <Text style={styles.retryButtonText}>Try Again</Text>
+      <Text style={[styles.errorTitle, { color: colors.error }]}>{t('unableToLoad')}</Text>
+      <Text style={[styles.errorSubtitle, { color: colors.textSecondary }]}>{error}</Text>
+      <TouchableOpacity style={[styles.retryButton, { backgroundColor: colors.primary }]} onPress={onRefresh}>
+        <Text style={[styles.retryButtonText, { color: colors.textInverse }]}>{t('tryAgain')}</Text>
       </TouchableOpacity>
     </View>
   );
 
   if (loading && !refreshing) {
     return (
-      <View style={styles.container}>
-        <StatusBar barStyle="dark-content" backgroundColor={COLORS.surface} />
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <StatusBar backgroundColor={colors.statusBar} barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} />
         <View style={styles.loadingContainer}>
           <View style={styles.loadingIconContainer}>
-            <MaterialIcons name="my-location" size={rf(56)} color={COLORS.primary} />
+            <MaterialIcons name="my-location" size={rf(56)} color={colors.primary} />
           </View>
-          <Text style={styles.loadingText}>Finding your location...</Text>
+          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>{t('findingLocation')}</Text>
         </View>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor={COLORS.surface} />
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar backgroundColor={colors.statusBar} barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} />
       
       {/* Fixed SearchBar outside of FlatList to prevent re-rendering */}
       <SearchBar
@@ -455,7 +455,6 @@ const responsiveDimensions = getResponsiveDimensions();
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.background,
   },
 
   loadingContainer: {
@@ -468,7 +467,6 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: rf(16),
-    color: COLORS.textSecondary,
   },
   emptyList: {
     flex: 1,
@@ -485,19 +483,16 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: rf(18),
     fontWeight: "600",
-    color: COLORS.text,
     marginBottom: rs(8),
     textAlign: "center",
   },
   emptySubtitle: {
     fontSize: rf(14),
-    color: COLORS.textSecondary,
     textAlign: "center",
     marginBottom: rs(16),
   },
   emptyHint: {
     fontSize: rf(13),
-    color: COLORS.textLight,
     textAlign: "center",
     fontStyle: "italic",
   },
@@ -513,25 +508,21 @@ const styles = StyleSheet.create({
   errorTitle: {
     fontSize: rf(18),
     fontWeight: "600",
-    color: COLORS.error,
     marginBottom: rs(8),
     textAlign: "center",
   },
   errorSubtitle: {
     fontSize: rf(14),
-    color: COLORS.textSecondary,
     textAlign: "center",
     marginBottom: rs(24),
   },
   retryButton: {
-    backgroundColor: COLORS.primary,
     paddingHorizontal: rs(24),
     paddingVertical: rs(12),
     borderRadius: rs(24),
   },
   retryButtonText: {
     fontSize: rf(16),
-    color: COLORS.surface,
     fontWeight: "600",
   },
   debugContainer: {
@@ -540,11 +531,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: rs(16),
     paddingVertical: rs(8),
-    backgroundColor: COLORS.background,
   },
   debugText: {
     fontSize: rf(12),
-    color: COLORS.textSecondary,
     flex: 1,
   },
   debugButtons: {
@@ -554,16 +543,13 @@ const styles = StyleSheet.create({
   refreshButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.surface,
     paddingHorizontal: rs(12),
     paddingVertical: rs(6),
     borderRadius: rs(16),
     borderWidth: 1,
-    borderColor: COLORS.primary,
   },
   refreshText: {
     fontSize: rf(12),
-    color: COLORS.primary,
     marginLeft: rs(4),
     fontWeight: '600',
   },

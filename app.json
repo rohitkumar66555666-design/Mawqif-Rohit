@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "scheme": "mawqif",
     "splash": {
       "image": "./assets/icon.png",
       "resizeMode": "contain",
@@ -20,21 +20,14 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false,
-      "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"],
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ],
       "package": "com.mawqif.prayerfinder"
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    },
-    "updates": {
-      "enabled": true,
-      "checkAutomatically": "ON_LOAD",
-      "fallbackToCacheTimeout": 30000
-    },
-    "runtimeVersion": {
-      "policy": "sdkVersion"
     },
     "plugins": [
       [
@@ -51,9 +44,6 @@
       ]
     ],
     "extra": {
-      "eas": {
-        "projectId": "your-project-id-here"
-      },
       "supabaseUrl": "https://sqsawueagugzcgpbwsyi.supabase.co",
       "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNxc2F3dWVhZ3VnemNncGJ3c3lpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMwMTM2NTEsImV4cCI6MjA3ODU4OTY1MX0.vv64OV3IwRc7rggyL6hKBYp9zjtXPV0I5nscR4xImXo"
     }

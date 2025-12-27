@@ -1,5 +1,7 @@
 import React, { useEffect } from 'react';
 import { AppNavigator } from './src/navigation/AppNavigator';
+import { ThemeProvider } from './src/contexts/ThemeContext';
+import { LanguageProvider } from './src/contexts/LanguageContext';
 import { CacheService } from './src/services/cache.service';
 
 export default function App() {
@@ -17,5 +19,11 @@ export default function App() {
     initializeApp();
   }, []);
 
-  return <AppNavigator />;
+  return (
+    <LanguageProvider>
+      <ThemeProvider>
+        <AppNavigator />
+      </ThemeProvider>
+    </LanguageProvider>
+  );
 }

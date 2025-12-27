@@ -20,7 +20,7 @@ import { Place, Location } from "../types";
 import { LocationService } from "../services/location.service";
 import { PlacesService } from "../services/places.service";
 import { OfflineDirectionsService } from "../services/offline-directions.service";
-import { COLORS } from "../utils/constants";
+import { useTheme } from "../contexts/ThemeContext";
 import { getResponsiveDimensions, rs, rf } from "../utils/responsive";
 
 interface MapScreenProps {
@@ -36,6 +36,7 @@ interface PlaceWithDistance extends Place {
 const MAX_DISPLAY_RADIUS_KM = 5; // Show masajids within 5km
 
 export const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
+  const { colors } = useTheme();
   const [places, setPlaces] = useState<PlaceWithDistance[]>([]);
   const [userLocation, setUserLocation] = useState<Location | null>(null);
   const [loading, setLoading] = useState(true);
@@ -312,9 +313,9 @@ export const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
   if (loading) {
     return (
       <View style={styles.container}>
-        <StatusBar barStyle="dark-content" backgroundColor={COLORS.surface} />
+        <StatusBar barStyle="dark-content" backgroundColor={colors.surface} />
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
+          <ActivityIndicator size="large" color={colors.primary} />
           <Text style={styles.loadingText}>Loading map...</Text>
         </View>
       </View>
@@ -324,7 +325,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
   if (error) {
     return (
       <View style={styles.container}>
-        <StatusBar barStyle="dark-content" backgroundColor={COLORS.surface} />
+        <StatusBar barStyle="dark-content" backgroundColor={colors.surface} />
         <View style={styles.centerContainer}>
           <Text style={styles.errorTitle}>Unable to Load Map</Text>
           <Text style={styles.errorMessage}>{error}</Text>
@@ -369,7 +370,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
         <Image source={{ uri: item.photo }} style={styles.cardImage as any} />
       ) : (
         <View style={styles.cardImagePlaceholder}>
-          <MaterialIcons name="location-on" size={rf(36)} color={COLORS.surface} />
+          <MaterialIcons name="location-on" size={rf(36)} color={colors.surface} />
         </View>
       )}
       <View style={styles.cardContent}>
@@ -384,14 +385,261 @@ export const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
         </Text>
       </View>
       <View style={styles.cardArrow}>
-        <Feather name="chevron-right" size={rf(28)} color={COLORS.primary} />
+        <Feather name="chevron-right" size={rf(28)} color={colors.primary} />
       </View>
     </TouchableOpacity>
   );
 
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+
+    centerContainer: {
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+      paddingHorizontal: rs(24),
+    },
+    map: {
+      flex: 1,
+    },
+
+    /* Bottom List Container - Zomato Style */
+    bottomListContainer: {
+      position: "absolute",
+      bottom: 0,
+      left: 0,
+      right: 0,
+      backgroundColor: colors.surface,
+      borderTopLeftRadius: rs(20),
+      borderTopRightRadius: rs(20),
+      elevation: 10,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: rs(-4) },
+      shadowOpacity: 0.2,
+      shadowRadius: rs(8),
+      maxHeight: `${responsiveDimensions.bottomListHeight}%`,
+    },
+    directionPanel: {
+      paddingHorizontal: rs(16),
+      paddingVertical: rs(12),
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+      backgroundColor: colors.primary,
+    },
+    directionHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "flex-start",
+    },
+    directionInfo: {
+      flex: 1,
+    },
+    directionTitle: {
+      fontSize: rf(11),
+      color: colors.surface,
+      opacity: 0.9,
+      marginBottom: rs(2),
+    },
+    selectedPlaceName: {
+      fontSize: rf(14),
+      fontWeight: "700",
+      color: colors.surface,
+    },
+    clearRouteButton: {
+      backgroundColor: "rgba(255, 255, 255, 0.2)",
+      borderRadius: rs(15),
+      width: rs(30),
+      height: rs(30),
+      justifyContent: "center",
+      alignItems: "center",
+      marginLeft: rs(12),
+    },
+    clearRouteText: {
+      color: colors.surface,
+      fontSize: rf(16),
+      fontWeight: "bold",
+    },
+    loadingRoute: {
+      flexDirection: "row",
+      alignItems: "center",
+    },
+    loadingRouteText: {
+      color: colors.surface,
+      fontSize: rf(12),
+      marginLeft: rs(8),
+      opacity: 0.9,
+    },
+    myLocationButton: {
+      position: "absolute",
+      top: rs(20),
+      right: rs(16),
+      backgroundColor: colors.surface,
+      borderRadius: rs(25),
+      width: rs(50),
+      height: rs(50),
+      justifyContent: "center",
+      alignItems: "center",
+      elevation: 5,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: rs(2) },
+      shadowOpacity: 0.25,
+      shadowRadius: rs(3.84),
+    },
+
+    routeInfo: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginTop: rs(4),
+    },
+    selectedPlaceDistance: {
+      fontSize: rf(13),
+      color: colors.surface,
+      fontWeight: "600",
+    },
+    selectedPlaceDuration: {
+      fontSize: rf(12),
+      color: colors.surface,
+      opacity: 0.9,
+    },
+    listContent: {
+      paddingHorizontal: rs(12),
+      paddingVertical: rs(8),
+    },
+    placeCard: {
+      backgroundColor: colors.background,
+      borderRadius: responsiveDimensions.cardBorderRadius,
+      marginHorizontal: rs(8),
+      width: responsiveDimensions.placeCardWidth,
+      flexDirection: "row",
+      alignItems: "center",
+      paddingVertical: rs(10),
+      paddingHorizontal: responsiveDimensions.cardPadding,
+      elevation: 4,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: rs(3) },
+      shadowOpacity: 0.2,
+      shadowRadius: rs(4),
+      borderWidth: 2,
+      borderColor: "transparent",
+    },
+    placeCardSelected: {
+      borderColor: colors.primary,
+      backgroundColor: colors.surface,
+    },
+    cardImage: {
+      width: responsiveDimensions.cardImageSize,
+      height: responsiveDimensions.cardImageSize,
+      borderRadius: rs(10),
+      marginRight: rs(14),
+      backgroundColor: colors.primary,
+    },
+    cardImagePlaceholder: {
+      width: responsiveDimensions.cardImageSize,
+      height: responsiveDimensions.cardImageSize,
+      borderRadius: rs(10),
+      marginRight: rs(14),
+      backgroundColor: colors.primary,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+
+    cardContent: {
+      flex: 1,
+      justifyContent: "center",
+      paddingRight: rs(8),
+    },
+    cardTitle: {
+      fontSize: rf(15),
+      fontWeight: "700",
+      color: colors.text,
+      marginBottom: rs(4),
+      textAlign: "left",
+    },
+    cardDistance: {
+      fontSize: rf(13),
+      color: colors.primary,
+      fontWeight: "600",
+      marginBottom: rs(2),
+      textAlign: "left",
+    },
+    cardCity: {
+      fontSize: rf(11),
+      color: colors.textSecondary,
+      textAlign: "left",
+    },
+    cardArrow: {
+      paddingHorizontal: rs(10),
+      paddingVertical: rs(6),
+      justifyContent: "center",
+      alignItems: "center",
+    },
+
+    emptyList: {
+      paddingVertical: rs(20),
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    emptyListText: {
+      fontSize: rf(13),
+      color: colors.textSecondary,
+    },
+    loadingText: {
+      fontSize: rf(14),
+      color: colors.textSecondary,
+      marginTop: rs(16),
+    },
+    errorTitle: {
+      fontSize: rf(16),
+      fontWeight: "700",
+      color: colors.text,
+      marginBottom: rs(8),
+    },
+    errorMessage: {
+      fontSize: rf(14),
+      color: colors.textSecondary,
+      textAlign: "center",
+      marginBottom: rs(20),
+    },
+    directionsButton: {
+      backgroundColor: colors.primary,
+      borderRadius: rs(8),
+      paddingHorizontal: rs(14),
+      paddingVertical: rs(10),
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    directionsButtonText: {
+      color: colors.surface,
+      fontSize: rf(13),
+      fontWeight: "700",
+    },
+    userLocationMarker: {
+      width: responsiveDimensions.markerSize,
+      height: responsiveDimensions.markerSize,
+      borderRadius: responsiveDimensions.markerSize / 2,
+      backgroundColor: "rgba(76, 175, 80, 0.2)",
+      borderWidth: 2,
+      borderColor: colors.primary,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    userLocationDot: {
+      width: rs(16),
+      height: rs(16),
+      borderRadius: rs(8),
+      backgroundColor: colors.primary,
+      borderWidth: 3,
+      borderColor: colors.surface,
+    },
+  });
+
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor={COLORS.surface} />
+      <StatusBar barStyle="dark-content" backgroundColor={colors.surface} />
       
 
 
@@ -455,7 +703,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
                 {/* Main route line */}
                 <Polyline
                   coordinates={routeCoordinates}
-                  strokeColor={COLORS.primary}
+                  strokeColor={colors.primary}
                   strokeWidth={3}
                   lineJoin="round"
                   lineCap="round"
@@ -469,7 +717,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
             style={styles.myLocationButton}
             onPress={centerOnUser}
           >
-            <MaterialIcons name="my-location" size={rf(28)} color={COLORS.primary} />
+            <MaterialIcons name="my-location" size={rf(28)} color={colors.primary} />
           </TouchableOpacity>
 
 
@@ -489,7 +737,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
                     <View style={styles.routeInfo}>
                       {loadingRoute ? (
                         <View style={styles.loadingRoute}>
-                          <ActivityIndicator size="small" color={COLORS.surface} />
+                          <ActivityIndicator size="small" color={colors.surface} />
                           <Text style={styles.loadingRouteText}>Getting directions...</Text>
                         </View>
                       ) : (
@@ -508,7 +756,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
                     style={styles.clearRouteButton}
                     onPress={clearRoute}
                   >
-                    <MaterialIcons name="close" size={rf(20)} color={COLORS.surface} />
+                    <MaterialIcons name="close" size={rf(20)} color={colors.surface} />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -537,7 +785,7 @@ export const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
         </>
       ) : (
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
+          <ActivityIndicator size="large" color={colors.primary} />
           <Text style={styles.loadingText}>Getting your location...</Text>
         </View>
       )}
@@ -547,252 +795,5 @@ export const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
 
 const { width } = Dimensions.get('window');
 const responsiveDimensions = getResponsiveDimensions();
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
-
-  centerContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: rs(24),
-  },
-  map: {
-    flex: 1,
-  },
-
-  /* Bottom List Container - Zomato Style */
-  bottomListContainer: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: COLORS.surface,
-    borderTopLeftRadius: rs(20),
-    borderTopRightRadius: rs(20),
-    elevation: 10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: rs(-4) },
-    shadowOpacity: 0.2,
-    shadowRadius: rs(8),
-    maxHeight: `${responsiveDimensions.bottomListHeight}%`,
-  },
-  directionPanel: {
-    paddingHorizontal: rs(16),
-    paddingVertical: rs(12),
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-    backgroundColor: COLORS.primary,
-  },
-  directionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-  },
-  directionInfo: {
-    flex: 1,
-  },
-  directionTitle: {
-    fontSize: rf(11),
-    color: COLORS.surface,
-    opacity: 0.9,
-    marginBottom: rs(2),
-  },
-  selectedPlaceName: {
-    fontSize: rf(14),
-    fontWeight: "700",
-    color: COLORS.surface,
-  },
-  clearRouteButton: {
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    borderRadius: rs(15),
-    width: rs(30),
-    height: rs(30),
-    justifyContent: "center",
-    alignItems: "center",
-    marginLeft: rs(12),
-  },
-  clearRouteText: {
-    color: COLORS.surface,
-    fontSize: rf(16),
-    fontWeight: "bold",
-  },
-  loadingRoute: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  loadingRouteText: {
-    color: COLORS.surface,
-    fontSize: rf(12),
-    marginLeft: rs(8),
-    opacity: 0.9,
-  },
-  myLocationButton: {
-    position: "absolute",
-    top: rs(20),
-    right: rs(16),
-    backgroundColor: COLORS.surface,
-    borderRadius: rs(25),
-    width: rs(50),
-    height: rs(50),
-    justifyContent: "center",
-    alignItems: "center",
-    elevation: 5,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: rs(2) },
-    shadowOpacity: 0.25,
-    shadowRadius: rs(3.84),
-  },
-
-  routeInfo: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: rs(4),
-  },
-  selectedPlaceDistance: {
-    fontSize: rf(13),
-    color: COLORS.surface,
-    fontWeight: "600",
-  },
-  selectedPlaceDuration: {
-    fontSize: rf(12),
-    color: COLORS.surface,
-    opacity: 0.9,
-  },
-  listContent: {
-    paddingHorizontal: rs(12),
-    paddingVertical: rs(8),
-  },
-  placeCard: {
-    backgroundColor: COLORS.background,
-    borderRadius: responsiveDimensions.cardBorderRadius,
-    marginHorizontal: rs(8),
-    width: responsiveDimensions.placeCardWidth,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: rs(10),
-    paddingHorizontal: responsiveDimensions.cardPadding,
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: rs(3) },
-    shadowOpacity: 0.2,
-    shadowRadius: rs(4),
-    borderWidth: 2,
-    borderColor: "transparent",
-  },
-  placeCardSelected: {
-    borderColor: COLORS.primary,
-    backgroundColor: COLORS.surface,
-  },
-  cardImage: {
-    width: responsiveDimensions.cardImageSize,
-    height: responsiveDimensions.cardImageSize,
-    borderRadius: rs(10),
-    marginRight: rs(14),
-    backgroundColor: COLORS.primary,
-  },
-  cardImagePlaceholder: {
-    width: responsiveDimensions.cardImageSize,
-    height: responsiveDimensions.cardImageSize,
-    borderRadius: rs(10),
-    marginRight: rs(14),
-    backgroundColor: COLORS.primary,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  cardContent: {
-    flex: 1,
-    justifyContent: "center",
-    paddingRight: rs(8),
-  },
-  cardTitle: {
-    fontSize: rf(15),
-    fontWeight: "700",
-    color: COLORS.text,
-    marginBottom: rs(4),
-    textAlign: "left",
-  },
-  cardDistance: {
-    fontSize: rf(13),
-    color: COLORS.primary,
-    fontWeight: "600",
-    marginBottom: rs(2),
-    textAlign: "left",
-  },
-  cardCity: {
-    fontSize: rf(11),
-    color: COLORS.textSecondary,
-    textAlign: "left",
-  },
-  cardArrow: {
-    paddingHorizontal: rs(10),
-    paddingVertical: rs(6),
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  emptyList: {
-    paddingVertical: rs(20),
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  emptyListText: {
-    fontSize: rf(13),
-    color: COLORS.textSecondary,
-  },
-  loadingText: {
-    fontSize: rf(14),
-    color: COLORS.textSecondary,
-    marginTop: rs(16),
-  },
-  errorTitle: {
-    fontSize: rf(16),
-    fontWeight: "700",
-    color: COLORS.text,
-    marginBottom: rs(8),
-  },
-  errorMessage: {
-    fontSize: rf(14),
-    color: COLORS.textSecondary,
-    textAlign: "center",
-    marginBottom: rs(20),
-  },
-  directionsButton: {
-    backgroundColor: COLORS.primary,
-    borderRadius: rs(8),
-    paddingHorizontal: rs(14),
-    paddingVertical: rs(10),
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  directionsButtonText: {
-    color: COLORS.surface,
-    fontSize: rf(13),
-    fontWeight: "700",
-  },
-  userLocationMarker: {
-    width: responsiveDimensions.markerSize,
-    height: responsiveDimensions.markerSize,
-    borderRadius: responsiveDimensions.markerSize / 2,
-    backgroundColor: "rgba(76, 175, 80, 0.2)",
-    borderWidth: 2,
-    borderColor: COLORS.primary,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  userLocationDot: {
-    width: rs(16),
-    height: rs(16),
-    borderRadius: rs(8),
-    backgroundColor: COLORS.primary,
-    borderWidth: 3,
-    borderColor: COLORS.surface,
-  },
-});
 
 export default MapScreen;

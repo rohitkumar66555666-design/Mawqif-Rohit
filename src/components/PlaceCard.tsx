@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,32 +7,114 @@ import {
   StyleSheet,
   Dimensions,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { MaterialIcons, Feather } from '@expo/vector-icons';
 import { Place } from '../types';
 import { LocationService } from '../services/location.service';
-import { COLORS, PLACE_TYPES } from '../utils/constants';
+import { BookmarksService } from '../services/bookmarks.service';
+import { useTheme } from '../contexts/ThemeContext';
+import { useLanguage } from '../contexts/LanguageContext';
+import { useUserInfo, useBookmarkAuth } from '../lib/authHelper';
+import { PLACE_TYPES } from '../utils/constants';
 import { getResponsiveDimensions, rs, rf } from '../utils/responsive';
 
 interface PlaceCardProps {
   place: Place;
   onPress: () => void;
+  navigation?: any; // Optional navigation prop for auth
 }
 
 const { width } = Dimensions.get('window');
 const responsiveDimensions = getResponsiveDimensions();
 
-export const PlaceCard: React.FC<PlaceCardProps> = ({ place, onPress }) => {
+export const PlaceCard: React.FC<PlaceCardProps> = ({ place, onPress, navigation }) => {
+  const { colors } = useTheme();
+  const { t } = useLanguage();
+  const { user, isAuthenticated } = useUserInfo();
+  const { requireBookmarkAuth } = useBookmarkAuth();
   const [imageLoading, setImageLoading] = useState(true);
   const [imageError, setImageError] = useState(false);
+  const [isBookmarked, setIsBookmarked] = useState(false);
+  const [bookmarkLoading, setBookmarkLoading] = useState(false);
   
-  const placeTypeLabel = PLACE_TYPES.find(type => type.value === place.type)?.label || place.type;
+  const placeTypeLabel = t(place.type);
   const distanceText = place.distance ? LocationService.formatDistance(place.distance) : '0m';
   const walkingTime = place.distance ? LocationService.formatWalkingTime(place.distance) : '0min walk';
   
-  // Debug logging for images
+  // Check bookmark status when component mounts or user changes
+  useEffect(() => {
+    checkBookmarkStatus();
+  }, [user, place.id]);
+
+  const checkBookmarkStatus = async () => {
+    if (!user?.uid) {
+      setIsBookmarked(false);
+      return;
+    }
+
+    try {
+      const bookmarked = await BookmarksService.isBookmarked(user.uid, place.id);
+      setIsBookmarked(bookmarked);
+    } catch (error) {
+      console.error('Error checking bookmark status:', error);
+    }
+  };
+
+  const handleBookmarkPress = async () => {
+    // Check authentication first
+    const proceedWithBookmark = async () => {
+      if (!user?.uid) return;
+
+      try {
+        setBookmarkLoading(true);
+        const newBookmarkStatus = await BookmarksService.toggleBookmark(user.uid, place.id);
+        setIsBookmarked(newBookmarkStatus);
+        
+        const message = newBookmarkStatus ? t('bookmarkAdded') : t('bookmarkRemoved');
+        // You could show a toast here instead of alert for better UX
+        console.log(message);
+      } catch (error) {
+        console.error('Error toggling bookmark:', error);
+        
+        // Check if it's a table missing error
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (errorMessage.includes('relation "bookmarks" does not exist') || 
+            errorMessage.includes('table "bookmarks" does not exist')) {
+          Alert.alert(
+            'Database Setup Required',
+            'The bookmarks feature requires database setup. Please run the setup script in Supabase.',
+            [{ text: t('ok') }]
+          );
+        } else {
+          Alert.alert(t('error'), t('failedToUpdateBookmark'));
+        }
+      } finally {
+        setBookmarkLoading(false);
+      }
+    };
+
+    // Require authentication for bookmarking
+    if (navigation) {
+      requireBookmarkAuth(navigation, proceedWithBookmark);
+    } else {
+      proceedWithBookmark();
+    }
+  };
+  
+  // Debug logging for images and validate URL
   if (place.photo) {
     console.log(`🖼️ PlaceCard Image URL for ${place.title}:`, place.photo);
+    
+    // Check for invalid URL schemes
+      if (place.photo.startsWith('blob:') || 
+        place.photo.startsWith('file:') || 
+        place.photo.startsWith('content:') ||
+        place.photo.startsWith('ph:')) {
+      console.warn(`⚠️ Invalid URL scheme detected for ${place.title}:`, place.photo);
+      // Don't try to load invalid URLs
+      place.photo = undefined;
+    }
   }
 
   // Get amenity icons for display
@@ -54,8 +136,8 @@ export const PlaceCard: React.FC<PlaceCardProps> = ({ place, onPress }) => {
   };
 
   return (
-    <TouchableOpacity style={styles.container} onPress={onPress}>
-      <View style={styles.imageContainer}>
+    <TouchableOpacity style={[styles.container, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={onPress}>
+      <View style={[styles.imageContainer, { backgroundColor: colors.background }]}>
         {place.photo && !imageError ? (
           <>
             <Image 
@@ -68,64 +150,80 @@ export const PlaceCard: React.FC<PlaceCardProps> = ({ place, onPress }) => {
             />
             {imageLoading && (
               <View style={styles.imageLoadingOverlay}>
-                <ActivityIndicator size="small" color={COLORS.primary} />
+                <ActivityIndicator size="small" color={colors.primary} />
               </View>
             )}
           </>
         ) : (
-          <View style={styles.placeholderImage}>
-            <MaterialIcons name="mosque" size={rf(32)} color={COLORS.surface} />
+          <View style={[styles.placeholderImage, { backgroundColor: colors.primaryLight }]}>
+            <MaterialIcons name="mosque" size={rf(32)} color={colors.textInverse} />
             {imageError && (
-              <Text style={styles.errorText}>Image unavailable</Text>
+              <Text style={[styles.errorText, { color: colors.textInverse }]}>{t('imageUnavailable')}</Text>
             )}
           </View>
         )}
+        {/* Bookmark Button */}
+        <TouchableOpacity
+          style={[styles.bookmarkButton, { backgroundColor: isBookmarked ? colors.primary : colors.surface }]}
+          onPress={handleBookmarkPress}
+          disabled={bookmarkLoading}
+        >
+          {bookmarkLoading ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <MaterialIcons 
+              name={isBookmarked ? "bookmark" : "bookmark-border"} 
+              size={rf(20)} 
+              color={isBookmarked ? colors.textInverse : colors.textSecondary} 
+            />
+          )}
+        </TouchableOpacity>
       </View>
       
       <View style={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.title} numberOfLines={1}>
-            {place.title}
+          <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
+            {String(place.title)}
           </Text>
-          <View style={styles.typeBadge}>
-            <Text style={styles.typeText}>{placeTypeLabel}</Text>
+          <View style={[styles.typeBadge, { backgroundColor: colors.primaryLight }]}>
+            <Text style={[styles.typeText, { color: colors.textInverse }]}>{String(t(place.type))}</Text>
           </View>
         </View>
         
         {/* Address display */}
         {place.address && (
           <View style={styles.addressContainer}>
-            <MaterialIcons name="location-on" size={rf(14)} color={COLORS.textSecondary} />
-            <Text style={styles.addressText} numberOfLines={1}>
-              {place.address}
+            <MaterialIcons name="location-on" size={rf(14)} color={colors.textSecondary} />
+            <Text style={[styles.addressText, { color: colors.textSecondary }]} numberOfLines={1}>
+              {String(place.address)}
             </Text>
           </View>
         )}
         
         <View style={styles.details}>
-          <Text style={styles.distance}>{distanceText}</Text>
-          <Text style={styles.walkingTime}>{walkingTime}</Text>
+          <Text style={[styles.distance, { color: colors.primary }]}>{String(distanceText)}</Text>
+          <Text style={[styles.walkingTime, { color: colors.textSecondary }]}>{String(walkingTime)}</Text>
         </View>
         
         {amenities.length > 0 && (
           <View style={styles.amenitiesContainer}>
             {amenities.map((amenityKey) => (
               <View key={amenityKey} style={styles.amenityIcon}>
-                {amenityKey === 'wuzu' && <MaterialIcons name="water-drop" size={rf(18)} color="#6B7280" />}
-                {amenityKey === 'washroom' && <MaterialIcons name="bathroom" size={rf(18)} color="#6B7280" />}
-                {amenityKey === 'women_area' && <MaterialIcons name="female" size={rf(18)} color="#6B7280" />}
+                {amenityKey === 'wuzu' && <MaterialIcons name="water-drop" size={rf(18)} color={colors.textSecondary} />}
+                {amenityKey === 'washroom' && <MaterialIcons name="bathroom" size={rf(18)} color={colors.textSecondary} />}
+                {amenityKey === 'women_area' && <MaterialIcons name="female" size={rf(18)} color={colors.textSecondary} />}
               </View>
             ))}
           </View>
         )}
         
         {place.capacity && (
-          <Text style={styles.capacity}>Capacity: {place.capacity}</Text>
+          <Text style={[styles.capacity, { color: colors.textSecondary }]}>{String(t('capacity'))}: {String(place.capacity)}</Text>
         )}
       </View>
       
       <View style={styles.arrow}>
-        <Feather name="chevron-right" size={rf(24)} color={COLORS.textSecondary} />
+        <Feather name="chevron-right" size={rf(24)} color={colors.textSecondary} />
       </View>
     </TouchableOpacity>
   );
@@ -134,13 +232,11 @@ export const PlaceCard: React.FC<PlaceCardProps> = ({ place, onPress }) => {
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    backgroundColor: COLORS.surface,
     borderRadius: responsiveDimensions.cardBorderRadius,
     padding: rs(16),
     marginHorizontal: responsiveDimensions.cardMargin,
     marginVertical: rs(8),
     borderWidth: 1,
-    borderColor: COLORS.border,
     elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: rs(2) },
@@ -153,7 +249,6 @@ const styles = StyleSheet.create({
     height: rs(90),
     borderRadius: rs(16),
     overflow: 'hidden',
-    backgroundColor: COLORS.background,
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: rs(2) },
@@ -178,13 +273,11 @@ const styles = StyleSheet.create({
   placeholderImage: {
     width: '100%',
     height: '100%',
-    backgroundColor: COLORS.primaryLight,
     justifyContent: 'center',
     alignItems: 'center',
   },
   errorText: {
     fontSize: rf(10),
-    color: COLORS.surface,
     marginTop: rs(4),
     textAlign: 'center',
   },
@@ -203,7 +296,6 @@ const styles = StyleSheet.create({
   title: {
     fontSize: rf(16),
     fontWeight: '600',
-    color: COLORS.text,
     flex: 1,
     marginRight: rs(8),
   },
@@ -215,20 +307,17 @@ const styles = StyleSheet.create({
   },
   addressText: {
     fontSize: rf(13),
-    color: COLORS.textSecondary,
     marginLeft: rs(4),
     flex: 1,
     fontWeight: '500',
   },
   typeBadge: {
-    backgroundColor: COLORS.primaryLight,
     paddingHorizontal: rs(10),
     paddingVertical: rs(4),
     borderRadius: rs(16),
   },
   typeText: {
     fontSize: rf(12),
-    color: COLORS.surface,
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
@@ -239,11 +328,9 @@ const styles = StyleSheet.create({
   distance: {
     fontSize: rf(15),
     fontWeight: '700',
-    color: COLORS.primary,
   },
   walkingTime: {
     fontSize: rf(14),
-    color: COLORS.textSecondary,
     marginTop: rs(2),
     fontWeight: '500',
   },
@@ -257,7 +344,6 @@ const styles = StyleSheet.create({
   },
   capacity: {
     fontSize: rf(13),
-    color: COLORS.textSecondary,
     marginTop: rs(2),
     fontWeight: '500',
   },
@@ -265,6 +351,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     width: rs(24),
+  },
+
+  // Bookmark Button
+  bookmarkButton: {
+    position: 'absolute',
+    top: rs(8),
+    right: rs(8),
+    width: rs(32),
+    height: rs(32),
+    borderRadius: rs(16),
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: rs(2) },
+    shadowOpacity: 0.2,
+    shadowRadius: rs(3),
   },
 
 });

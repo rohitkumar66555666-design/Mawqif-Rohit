@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { COLORS } from '../utils/constants';
+import { useTheme } from '../contexts/ThemeContext';
 import { rf, rs } from '../utils/responsive';
 import { CacheService } from '../services/cache.service';
 
@@ -14,6 +14,7 @@ export const OfflineStatus: React.FC<OfflineStatusProps> = ({
   isVisible = true,
   onCacheManage,
 }) => {
+  const { colors } = useTheme();
   const [isOffline, setIsOffline] = useState(false);
   const [cacheStats, setCacheStats] = useState({
     placesCount: 0,
@@ -54,15 +55,48 @@ export const OfflineStatus: React.FC<OfflineStatusProps> = ({
     return null;
   }
 
+  const styles = StyleSheet.create({
+    container: {
+      backgroundColor: '#FF6B35',
+      paddingVertical: rs(8),
+      paddingHorizontal: rs(16),
+    },
+    statusBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    statusText: {
+      color: colors.surface,
+      fontSize: rf(14),
+      fontWeight: '600',
+      marginLeft: rs(8),
+      flex: 1,
+      textAlign: 'center',
+    },
+    infoButton: {
+      padding: rs(4),
+    },
+    cacheInfo: {
+      marginTop: rs(4),
+      alignItems: 'center',
+    },
+    cacheText: {
+      color: colors.surface,
+      fontSize: rf(12),
+      opacity: 0.9,
+    },
+  });
+
   return (
     <View style={styles.container}>
       <View style={styles.statusBar}>
-        <MaterialIcons name="wifi-off" size={rf(20)} color={COLORS.surface} />
+        <MaterialIcons name="wifi-off" size={rf(20)} color={colors.surface} />
         <Text style={styles.statusText}>
           Offline Mode - Using Cached Data
         </Text>
         <TouchableOpacity onPress={onCacheManage} style={styles.infoButton}>
-          <MaterialIcons name="info" size={rf(18)} color={COLORS.surface} />
+          <MaterialIcons name="info" size={rf(18)} color={colors.surface} />
         </TouchableOpacity>
       </View>
       
@@ -74,36 +108,3 @@ export const OfflineStatus: React.FC<OfflineStatusProps> = ({
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    backgroundColor: '#FF6B35',
-    paddingVertical: rs(8),
-    paddingHorizontal: rs(16),
-  },
-  statusBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  statusText: {
-    color: COLORS.surface,
-    fontSize: rf(14),
-    fontWeight: '600',
-    marginLeft: rs(8),
-    flex: 1,
-    textAlign: 'center',
-  },
-  infoButton: {
-    padding: rs(4),
-  },
-  cacheInfo: {
-    marginTop: rs(4),
-    alignItems: 'center',
-  },
-  cacheText: {
-    color: COLORS.surface,
-    fontSize: rf(12),
-    opacity: 0.9,
-  },
-});

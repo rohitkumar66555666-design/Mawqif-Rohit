@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { decode } from 'base64-arraybuffer';
 
 export class ImageUploadService {
@@ -343,6 +343,135 @@ export class ImageUploadService {
     } catch (error) {
       console.error('❌ Storage test error:', error);
       return false;
+    }
+  }
+
+  /**
+   * Upload profile image to Supabase Storage and return public URL
+   */
+  static async uploadProfileImage(imageUri: string, userId?: string): Promise<string> {
+    try {
+      console.log('📤 Starting profile image upload for URI:', imageUri);
+      
+      // Validate input URI
+      if (!imageUri || !imageUri.trim()) {
+        throw new Error('Image URI is required');
+      }
+      
+      // Generate unique filename for profile
+      const timestamp = Date.now();
+      const randomId = Math.random().toString(36).substring(2);
+      const fileName = `profile_${userId || randomId}_${timestamp}.jpg`;
+      
+      console.log('📝 Generated profile filename:', fileName);
+      
+      // Get base64 data from stored image data (set by image picker)
+      let base64: string;
+      const storedImageData = (global as any).selectedImageData;
+      
+      if (storedImageData && storedImageData.base64) {
+        console.log('✅ Using base64 data from image picker');
+        base64 = storedImageData.base64;
+      } else {
+        console.log('⚠️ No stored base64 data, trying to read file directly...');
+        
+        try {
+          // Check if file exists first
+          const fileInfo = await FileSystem.getInfoAsync(imageUri);
+          if (!fileInfo.exists) {
+            throw new Error('Image file does not exist at the specified path');
+          }
+          
+          // Try reading as base64
+          base64 = await FileSystem.readAsStringAsync(imageUri, {
+            encoding: 'base64',
+          });
+          
+          if (!base64 || base64.length === 0) {
+            throw new Error('File read returned empty data');
+          }
+          
+          console.log('✅ Successfully read profile image file from URI');
+        } catch (readError) {
+          console.error('❌ Error reading profile image file:', readError);
+          throw new Error('Failed to read image file. Please try selecting a different image.');
+        }
+      }
+      
+      if (!base64 || base64.length === 0) {
+        throw new Error('Image file is empty or corrupted. Please select a different image.');
+      }
+      
+      // Convert base64 to ArrayBuffer
+      let arrayBuffer: ArrayBuffer;
+      try {
+        arrayBuffer = decode(base64);
+        console.log('✅ Profile image base64 decoded to ArrayBuffer, size:', arrayBuffer.byteLength);
+      } catch (decodeError) {
+        console.error('❌ Error decoding profile image base64:', decodeError);
+        throw new Error('Image format is corrupted or not supported. Please use JPG or PNG format.');
+      }
+      
+      // Validate file size (max 5MB for profile images)
+      if (arrayBuffer.byteLength > 5 * 1024 * 1024) {
+        throw new Error('Profile image is too large (max 5MB). Please select a smaller image.');
+      }
+      
+      console.log('🔄 Uploading profile image to Supabase Storage...');
+      
+      // Upload to Supabase Storage in profiles subfolder
+      const { data, error } = await supabase.storage
+        .from('place-images')
+        .upload(`profiles/${fileName}`, arrayBuffer, {
+          contentType: 'image/jpeg',
+          upsert: false,
+        });
+      
+      if (error) {
+        console.error('❌ Profile image Supabase upload error:', error);
+        
+        // Provide specific error messages
+        if (error.message.includes('not found') || error.message.includes('does not exist')) {
+          throw new Error('Storage bucket not configured. Please run the database setup script first.');
+        } else if (error.message.includes('permission') || error.message.includes('policy')) {
+          throw new Error('Upload permission denied. Please check storage policies.');
+        } else {
+          throw new Error(`Profile image upload failed: ${error.message}`);
+        }
+      }
+      
+      if (!data || !data.path) {
+        throw new Error('Profile image upload succeeded but no file path returned');
+      }
+      
+      console.log('✅ Profile image upload successful to path:', data.path);
+      
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('place-images')
+        .getPublicUrl(`profiles/${fileName}`);
+      
+      const publicUrl = urlData.publicUrl;
+      console.log('🌐 Profile image public URL generated:', publicUrl);
+      
+      // Clean up stored image data
+      delete (global as any).selectedImageData;
+      
+      // Validate the public URL format
+      if (!publicUrl || !publicUrl.includes('supabase.co')) {
+        throw new Error('Invalid public URL format returned from Supabase');
+      }
+      
+      console.log('✅ Profile image upload completed successfully');
+      return publicUrl;
+      
+    } catch (error) {
+      console.error('❌ Error uploading profile image:', error);
+      
+      // Clean up stored image data on error
+      delete (global as any).selectedImageData;
+      
+      throw error;
     }
   }
 }

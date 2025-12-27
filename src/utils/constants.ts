@@ -18,9 +18,11 @@ export const RADIUS_OPTIONS = [
 
 export const DEFAULT_RADIUS = 2000; // 2km
 
+// Legacy COLORS - kept for backward compatibility
+// Use useTheme() hook for dynamic theming
 export const COLORS = {
-  primary: "#1B5E20", // Darker Islamic green
-  primaryLight: "#4CAF50", // Lighter green
+  primary: "#4CAF50",
+  primaryLight: "rgba(76, 175, 80, 0.1)",
   secondary: "#2E7D32",
   accent: "#FFC107",
   background: "#F8F9FA",
@@ -35,5 +37,3 @@ export const COLORS = {
   border: "#E5E7EB",
   shadow: "#000000",
 } as const;
-
-// Amenity icons are now handled directly in components using MaterialIcons

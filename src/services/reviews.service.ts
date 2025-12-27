@@ -1,80 +1,34 @@
 import { supabase } from './supabase';
-import { Review, ReviewReply } from '../types';
+import { Review, ReviewReply, ReviewSortOption } from '../types';
+
+export interface CreateReviewInput {
+  place_id: string;
+  user_id: string;
+  user_name: string;
+  rating: number;
+  comment: string;
+}
+
+export interface UpdateReviewInput {
+  rating?: number;
+  comment?: string;
+}
 
 export class ReviewsService {
   /**
-   * Test database connection and table existence
-   */
-  static async testConnection(): Promise<void> {
-    try {
-      console.log('🔍 Testing database connection...');
-      
-      // Test 1: Basic connection
-      const { data: connectionTest, error: connectionError } = await supabase
-        .from('places')
-        .select('id')
-        .limit(1);
-
-      if (connectionError) {
-        console.error('❌ BASIC CONNECTION FAILED:', connectionError.message);
-        throw new Error(`Connection failed: ${connectionError.message}`);
-      }
-      console.log('✅ Basic Supabase connection works');
-
-      // Test 2: Reviews table exists
-      const { data: reviewsTest, error: reviewsError } = await supabase
-        .from('reviews')
-        .select('id')
-        .limit(1);
-
-      if (reviewsError) {
-        console.error('❌ REVIEWS TABLE ERROR:', reviewsError.message);
-        if (reviewsError.message.includes('does not exist')) {
-          throw new Error('REVIEWS TABLE MISSING - You need to run the SQL setup file!');
-        }
-        throw new Error(`Reviews table error: ${reviewsError.message}`);
-      }
-      console.log('✅ Reviews table exists and accessible');
-
-      // Test 3: Check if places exist
-      const { data: placesData, error: placesError } = await supabase
-        .from('places')
-        .select('id, title')
-        .limit(5);
-
-      if (placesError) {
-        console.error('❌ PLACES TABLE ERROR:', placesError.message);
-        throw new Error(`Places table error: ${placesError.message}`);
-      }
-
-      if (!placesData || placesData.length === 0) {
-        console.warn('⚠️ NO PLACES FOUND - You need to add some places first!');
-        throw new Error('NO PLACES IN DATABASE - Add some places first before reviewing');
-      }
-
-      console.log(`✅ Found ${placesData.length} places in database`);
-      console.log('✅ Database setup is complete and working!');
-      
-    } catch (error) {
-      console.error('❌ Connection test error:', error);
-      throw error;
-    }
-  }
-  /**
    * Get all reviews for a specific place
    */
-  static async getReviewsForPlace(placeId: string, sortBy: 'newest' | 'oldest' | 'most_liked' = 'newest'): Promise<Review[]> {
+  static async getPlaceReviews(
+    placeId: string, 
+    sortBy: ReviewSortOption = 'newest',
+    limit: number = 50
+  ): Promise<Review[]> {
     try {
-      console.log('🔄 Fetching reviews for place:', placeId);
-      
+      console.log('📝 Getting reviews for place:', placeId, 'Type:', typeof placeId);
+
       let query = supabase
         .from('reviews')
-        .select(`
-          *,
-          replies:review_replies(
-            *
-          )
-        `)
+        .select('*')
         .eq('place_id', placeId);
 
       // Apply sorting
@@ -90,92 +44,481 @@ export class ReviewsService {
           break;
       }
 
-      const { data, error } = await query;
+      const { data, error } = await query.limit(limit);
 
       if (error) {
-        console.error('❌ Error fetching reviews:', error);
-        console.error('❌ Error code:', error.code);
-        console.error('❌ Error message:', error.message);
+        console.error('❌ Error getting place reviews:', error);
+        console.error('❌ Query was for place_id:', placeId);
+        
+        // Provide specific error message for UUID/TEXT mismatch
+        if (error.code === '42883' && error.message?.includes('uuid = text')) {
+          throw new Error('Database column type mismatch in SELECT query. Run the COMPLETE_REVIEWS_FIX.sql to fix all column types.');
+        }
+        
         throw error;
       }
 
-      console.log(`✅ Fetched ${data?.length || 0} reviews for place ${placeId}`);
-      return data || [];
+      // Transform data to match Review interface
+      const reviews: Review[] = (data || []).map(review => ({
+        id: review.id,
+        place_id: review.place_id,
+        user_id: review.user_id,
+        user_name: review.user_name || 'Anonymous',
+        user_avatar: undefined, // Will be fetched separately if needed
+        rating: review.rating,
+        comment: review.comment,
+        created_at: review.created_at,
+        updated_at: review.updated_at,
+        likes_count: review.likes_count || 0,
+        dislikes_count: review.dislikes_count || 0,
+        replies_count: review.replies_count || 0,
+        is_owner: false, // TODO: Implement place owner check
+        user_liked: false, // TODO: Implement user like status
+        user_disliked: false, // TODO: Implement user dislike status
+      }));
+
+      console.log(`✅ Retrieved ${reviews.length} reviews for place ${placeId}`);
+      return reviews;
+
     } catch (error) {
-      console.error('❌ Error in getReviewsForPlace:', error);
+      console.error('❌ Error in getPlaceReviews:', error);
       throw error;
     }
   }
 
   /**
-   * Add a new review
+   * Get all reviews for a specific place (alias for getPlaceReviews)
    */
-  static async addReview(
-    placeId: string,
+  static async getReviewsForPlace(
+    placeId: string, 
+    sortBy: ReviewSortOption = 'newest',
+    limit: number = 50
+  ): Promise<Review[]> {
+    return this.getPlaceReviews(placeId, sortBy, limit);
+  }
+
+  /**
+   * Get all reviews by a specific user (for My Reviews section)
+   */
+  static async getUserReviews(
     userId: string,
-    userName: string,
-    rating: number,
-    comment: string
-  ): Promise<Review> {
+    limit: number = 100
+  ): Promise<Review[]> {
     try {
-      console.log('🔄 ReviewsService.addReview called with:', { placeId, userId, userName, rating, comment });
-      
-      const reviewData = {
-        place_id: placeId,
-        // Let Supabase auto-generate user_id with UUID default
-        user_name: userName,
-        rating,
-        comment: comment, // Use 'comment' column instead of 'review_text'
-        likes_count: 0,
-        dislikes_count: 0,
-        replies_count: 0,
-        is_owner: false,
-        // Let Supabase handle created_at with default timestamp
-      };
+      console.log('👤 Getting reviews for user:', userId);
 
-      console.log('📝 Inserting review data:', reviewData);
-
+      // Get reviews without any joins to avoid foreign key issues
       const { data, error } = await supabase
         .from('reviews')
-        .insert([reviewData])
-        .select()
-        .single();
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
 
       if (error) {
-        console.error('❌ Supabase error:', error);
-        console.error('❌ Error code:', error.code);
-        console.error('❌ Error message:', error.message);
-        console.error('❌ Error details:', error.details);
-        
-        // Provide specific error messages for common issues
-        if (error.message.includes('uuid')) {
-          throw new Error('Database UUID configuration issue. Please run the COMPLETE_UUID_FIX.sql file in your Supabase dashboard.');
-        } else if (error.message.includes('column') && error.message.includes('does not exist')) {
-          throw new Error('Database schema issue. Please run the COMPLETE_UUID_FIX.sql file to add missing columns.');
-        } else if (error.message.includes('null value') && error.message.includes('comment')) {
-          throw new Error('Database column mismatch. Please run the COMPLETE_UUID_FIX.sql file to fix column issues.');
-        } else {
-          throw new Error(`Database error: ${error.message} (Code: ${error.code})`);
-        }
-      }
-
-      console.log('✅ Review added successfully:', data);
-      
-      // Update place rating and review count
-      await this.updatePlaceRating(placeId);
-      
-      return data;
-    } catch (error) {
-      console.error('❌ Error in addReview:', error);
-      if (error instanceof Error) {
+        console.error('❌ Error getting user reviews:', error);
         throw error;
       }
-      throw new Error('Failed to add review');
+
+      // Get place and profile information separately for each review
+      const reviewsWithInfo = await Promise.all(
+        (data || []).map(async (review) => {
+          let placeInfo = null;
+          let profileInfo = null;
+
+          // Try to get place information
+          try {
+            const { data: placeData } = await supabase
+              .from('places')
+              .select('title, address, city')
+              .eq('id', review.place_id)
+              .single();
+            placeInfo = placeData;
+          } catch (placeError) {
+            console.warn('Could not fetch place info for review:', review.id);
+          }
+
+          // Try to get profile information
+          try {
+            const { data: profileData } = await supabase
+              .from('profiles')
+              .select('full_name, profile_image_url')
+              .eq('user_id', review.user_id)
+              .single();
+            profileInfo = profileData;
+          } catch (profileError) {
+            console.warn('Could not fetch profile info for review:', review.id);
+          }
+
+          return {
+            id: review.id,
+            place_id: review.place_id,
+            user_id: review.user_id,
+            user_name: profileInfo?.full_name || review.user_name || 'Anonymous',
+            user_avatar: profileInfo?.profile_image_url,
+            rating: review.rating,
+            comment: review.comment,
+            created_at: review.created_at,
+            updated_at: review.updated_at,
+            likes_count: review.likes_count || 0,
+            dislikes_count: review.dislikes_count || 0,
+            replies_count: review.replies_count || 0,
+            is_owner: false,
+            user_liked: false,
+            user_disliked: false,
+            // Add place information
+            place_title: placeInfo?.title || 'Unknown Place',
+            place_address: placeInfo?.address || 'Unknown Address',
+            place_city: placeInfo?.city || 'Unknown City',
+          };
+        })
+      );
+
+      console.log(`✅ Retrieved ${reviewsWithInfo.length} reviews for user ${userId}`);
+      return reviewsWithInfo;
+
+    } catch (error) {
+      console.error('❌ Error in getUserReviews:', error);
+      throw error;
     }
   }
 
   /**
-   * Add a reply to a review
+   * Create a new review
+   */
+  static async createReview(reviewData: CreateReviewInput): Promise<Review> {
+    try {
+      console.log('📝 Creating review:', reviewData);
+
+      const { data, error } = await supabase
+        .from('reviews')
+        .insert([{
+          place_id: reviewData.place_id,
+          user_id: reviewData.user_id,
+          user_name: reviewData.user_name,
+          rating: reviewData.rating,
+          comment: reviewData.comment,
+          likes_count: 0,
+          dislikes_count: 0,
+          replies_count: 0,
+        }])
+        .select('*')
+        .single();
+
+      if (error) {
+        console.error('❌ Error creating review:', error);
+        
+        // Provide specific error messages for common issues
+        if (error.code === '42883' && error.message?.includes('uuid = text')) {
+          throw new Error('Database configuration error: Please run the database fix script to change column types from UUID to TEXT.');
+        } else if (error.code === '23505') {
+          throw new Error('You have already reviewed this place.');
+        } else if (error.code === '23503') {
+          throw new Error('Invalid place or user ID.');
+        } else {
+          throw new Error(`Database error: ${error.message || 'Unable to save review'}`);
+        }
+      }
+
+      const review: Review = {
+        id: data.id,
+        place_id: data.place_id,
+        user_id: data.user_id,
+        user_name: data.user_name,
+        user_avatar: undefined,
+        rating: data.rating,
+        comment: data.comment,
+        created_at: data.created_at,
+        updated_at: data.updated_at,
+        likes_count: data.likes_count || 0,
+        dislikes_count: data.dislikes_count || 0,
+        replies_count: data.replies_count || 0,
+        is_owner: false,
+        user_liked: false,
+        user_disliked: false,
+      };
+
+      console.log('✅ Review created successfully:', review.id);
+      return review;
+
+    } catch (error) {
+      console.error('❌ Error in createReview:', error);
+      
+      // Re-throw with proper error message
+      if (error instanceof Error) {
+        throw error;
+      } else {
+        throw new Error('Failed to create review. Please try again.');
+      }
+    }
+  }
+
+  /**
+   * Check if a string is a valid UUID
+   */
+  private static isValidUUID(str: string): boolean {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(str);
+  }
+
+  /**
+   * Generate a deterministic UUID from a string
+   */
+  private static generateUUIDFromString(str: string): string {
+    // Simple hash function to convert string to UUID format
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    
+    // Convert hash to hex and pad
+    const hex = Math.abs(hash).toString(16).padStart(8, '0');
+    
+    // Create UUID format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+    const uuid = [
+      hex.slice(0, 8),
+      hex.slice(0, 4),
+      '4' + hex.slice(1, 4), // Version 4 UUID
+      '8' + hex.slice(1, 4), // Variant bits
+      hex.repeat(3).slice(0, 12)
+    ].join('-');
+    
+    return uuid;
+  }
+
+  /**
+   * Add a new review (alias for createReview)
+   */
+  static async addReview(
+    placeId: string,
+    currentUserId: string,
+    userName: string,
+    rating: number,
+    comment: string
+  ): Promise<Review> {
+    const createReviewInput: CreateReviewInput = {
+      place_id: placeId,
+      user_id: currentUserId,
+      user_name: userName,
+      rating: rating,
+      comment: comment,
+    };
+
+    return this.createReview(createReviewInput);
+  }
+
+  /**
+   * Update an existing review
+   */
+  static async updateReview(
+    reviewId: string, 
+    userId: string, 
+    updates: UpdateReviewInput
+  ): Promise<Review> {
+    try {
+      console.log('📝 Updating review:', reviewId, updates);
+
+      const { data, error } = await supabase
+        .from('reviews')
+        .update({
+          ...updates,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', reviewId)
+        .eq('user_id', userId) // Ensure user can only update their own reviews
+        .select('*')
+        .single();
+
+      if (error) {
+        console.error('❌ Error updating review:', error);
+        throw error;
+      }
+
+      const review: Review = {
+        id: data.id,
+        place_id: data.place_id,
+        user_id: data.user_id,
+        user_name: data.user_name,
+        user_avatar: undefined,
+        rating: data.rating,
+        comment: data.comment,
+        created_at: data.created_at,
+        updated_at: data.updated_at,
+        likes_count: data.likes_count || 0,
+        dislikes_count: data.dislikes_count || 0,
+        replies_count: data.replies_count || 0,
+        is_owner: false,
+        user_liked: false,
+        user_disliked: false,
+      };
+
+      console.log('✅ Review updated successfully');
+      return review;
+
+    } catch (error) {
+      console.error('❌ Error in updateReview:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a review (hard delete for now since no is_active column)
+   */
+  static async deleteReview(reviewId: string, userId: string): Promise<void> {
+    try {
+      console.log('🗑️ Deleting review:', reviewId);
+
+      const { error } = await supabase
+        .from('reviews')
+        .delete()
+        .eq('id', reviewId)
+        .eq('user_id', userId); // Ensure user can only delete their own reviews
+
+      if (error) {
+        console.error('❌ Error deleting review:', error);
+        throw error;
+      }
+
+      console.log('✅ Review deleted successfully');
+
+    } catch (error) {
+      console.error('❌ Error in deleteReview:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get review statistics for a user
+   */
+  static async getUserReviewStats(userId: string): Promise<{
+    totalReviews: number;
+    averageRating: number;
+    totalLikes: number;
+  }> {
+    try {
+      console.log('📊 Getting review stats for user:', userId);
+
+      const { data, error } = await supabase
+        .from('reviews')
+        .select('rating, likes_count')
+        .eq('user_id', userId);
+
+      if (error) {
+        console.error('❌ Error getting review stats:', error);
+        // Return default stats instead of throwing
+        return {
+          totalReviews: 0,
+          averageRating: 0,
+          totalLikes: 0,
+        };
+      }
+
+      const reviews = data || [];
+      const totalReviews = reviews.length;
+      const averageRating = totalReviews > 0 
+        ? reviews.reduce((sum, review) => sum + review.rating, 0) / totalReviews 
+        : 0;
+      const totalLikes = reviews.reduce((sum, review) => sum + (review.likes_count || 0), 0);
+
+      const stats = {
+        totalReviews,
+        averageRating: Math.round(averageRating * 10) / 10, // Round to 1 decimal
+        totalLikes,
+      };
+
+      console.log('✅ Review stats retrieved:', stats);
+      return stats;
+
+    } catch (error) {
+      console.error('❌ Error in getUserReviewStats:', error);
+      return {
+        totalReviews: 0,
+        averageRating: 0,
+        totalLikes: 0,
+      };
+    }
+  }
+
+  /**
+   * Like a review (placeholder implementation)
+   */
+  static async likeReview(reviewId: string, userId: string): Promise<void> {
+    try {
+      console.log('👍 Liking review:', reviewId);
+      
+      // Get current likes count and increment it
+      const { data: currentReview, error: fetchError } = await supabase
+        .from('reviews')
+        .select('likes_count')
+        .eq('id', reviewId)
+        .single();
+
+      if (fetchError) {
+        console.error('❌ Error fetching review for like:', fetchError);
+        throw fetchError;
+      }
+
+      const newLikesCount = (currentReview?.likes_count || 0) + 1;
+
+      const { error } = await supabase
+        .from('reviews')
+        .update({ likes_count: newLikesCount })
+        .eq('id', reviewId);
+
+      if (error) {
+        console.error('❌ Error liking review:', error);
+        throw error;
+      }
+
+      console.log('✅ Review liked successfully');
+    } catch (error) {
+      console.error('❌ Error in likeReview:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Dislike a review (placeholder implementation)
+   */
+  static async dislikeReview(reviewId: string, userId: string): Promise<void> {
+    try {
+      console.log('👎 Disliking review:', reviewId);
+      
+      // Get current dislikes count and increment it
+      const { data: currentReview, error: fetchError } = await supabase
+        .from('reviews')
+        .select('dislikes_count')
+        .eq('id', reviewId)
+        .single();
+
+      if (fetchError) {
+        console.error('❌ Error fetching review for dislike:', fetchError);
+        throw fetchError;
+      }
+
+      const newDislikesCount = (currentReview?.dislikes_count || 0) + 1;
+
+      const { error } = await supabase
+        .from('reviews')
+        .update({ dislikes_count: newDislikesCount })
+        .eq('id', reviewId);
+
+      if (error) {
+        console.error('❌ Error disliking review:', error);
+        throw error;
+      }
+
+      console.log('✅ Review disliked successfully');
+    } catch (error) {
+      console.error('❌ Error in dislikeReview:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Add a reply to a review (placeholder implementation)
    */
   static async addReply(
     reviewId: string,
@@ -183,481 +526,84 @@ export class ReviewsService {
     userName: string,
     comment: string,
     isOwner: boolean = false
-  ): Promise<ReviewReply> {
+  ): Promise<void> {
     try {
-      const replyData = {
-        review_id: reviewId,
-        user_id: userId,
-        user_name: userName,
-        comment,
-        likes_count: 0,
-        dislikes_count: 0,
-        is_owner: isOwner,
-        created_at: new Date().toISOString(),
-      };
-
-      const { data, error } = await supabase
-        .from('review_replies')
-        .insert([replyData])
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Error adding reply:', error);
-        throw error;
-      }
-
-      // Update replies count in the parent review
-      await this.updateReviewRepliesCount(reviewId);
-
-      return data;
-    } catch (error) {
-      console.error('Error in addReply:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Like a review
-   */
-  static async likeReview(reviewId: string, userId: string): Promise<void> {
-    try {
-      // Check if user already liked this review
-      const { data: existingLike } = await supabase
-        .from('review_likes')
-        .select('*')
-        .eq('review_id', reviewId)
-        .eq('user_id', userId)
-        .eq('is_like', true)
-        .single();
-
-      if (existingLike) {
-        // Remove like
-        await supabase
-          .from('review_likes')
-          .delete()
-          .eq('review_id', reviewId)
-          .eq('user_id', userId)
-          .eq('is_like', true);
-      } else {
-        // Remove any existing dislike first
-        await supabase
-          .from('review_likes')
-          .delete()
-          .eq('review_id', reviewId)
-          .eq('user_id', userId)
-          .eq('is_like', false);
-
-        // Add like
-        await supabase
-          .from('review_likes')
-          .insert([{
-            review_id: reviewId,
-            user_id: userId,
-            is_like: true,
-          }]);
-      }
-
-      // Update likes count in review
-      await this.updateReviewLikesCount(reviewId);
-    } catch (error) {
-      console.error('Error in likeReview:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Dislike a review
-   */
-  static async dislikeReview(reviewId: string, userId: string): Promise<void> {
-    try {
-      // Check if user already disliked this review
-      const { data: existingDislike } = await supabase
-        .from('review_likes')
-        .select('*')
-        .eq('review_id', reviewId)
-        .eq('user_id', userId)
-        .eq('is_like', false)
-        .single();
-
-      if (existingDislike) {
-        // Remove dislike
-        await supabase
-          .from('review_likes')
-          .delete()
-          .eq('review_id', reviewId)
-          .eq('user_id', userId)
-          .eq('is_like', false);
-      } else {
-        // Remove any existing like first
-        await supabase
-          .from('review_likes')
-          .delete()
-          .eq('review_id', reviewId)
-          .eq('user_id', userId)
-          .eq('is_like', true);
-
-        // Add dislike
-        await supabase
-          .from('review_likes')
-          .insert([{
-            review_id: reviewId,
-            user_id: userId,
-            is_like: false,
-          }]);
-      }
-
-      // Update dislikes count in review
-      await this.updateReviewLikesCount(reviewId);
-    } catch (error) {
-      console.error('Error in dislikeReview:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Like a reply
-   */
-  static async likeReply(replyId: string, userId: string): Promise<void> {
-    try {
-      // Check if user already liked this reply
-      const { data: existingLike } = await supabase
-        .from('reply_likes')
-        .select('*')
-        .eq('reply_id', replyId)
-        .eq('user_id', userId)
-        .eq('is_like', true)
-        .single();
-
-      if (existingLike) {
-        // Remove like
-        await supabase
-          .from('reply_likes')
-          .delete()
-          .eq('reply_id', replyId)
-          .eq('user_id', userId)
-          .eq('is_like', true);
-      } else {
-        // Remove any existing dislike first
-        await supabase
-          .from('reply_likes')
-          .delete()
-          .eq('reply_id', replyId)
-          .eq('user_id', userId)
-          .eq('is_like', false);
-
-        // Add like
-        await supabase
-          .from('reply_likes')
-          .insert([{
-            reply_id: replyId,
-            user_id: userId,
-            is_like: true,
-          }]);
-      }
-
-      // Update likes count in reply
-      await this.updateReplyLikesCount(replyId);
-    } catch (error) {
-      console.error('Error in likeReply:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Dislike a reply
-   */
-  static async dislikeReply(replyId: string, userId: string): Promise<void> {
-    try {
-      // Check if user already disliked this reply
-      const { data: existingDislike } = await supabase
-        .from('reply_likes')
-        .select('*')
-        .eq('reply_id', replyId)
-        .eq('user_id', userId)
-        .eq('is_like', false)
-        .single();
-
-      if (existingDislike) {
-        // Remove dislike
-        await supabase
-          .from('reply_likes')
-          .delete()
-          .eq('reply_id', replyId)
-          .eq('user_id', userId)
-          .eq('is_like', false);
-      } else {
-        // Remove any existing like first
-        await supabase
-          .from('reply_likes')
-          .delete()
-          .eq('reply_id', replyId)
-          .eq('user_id', userId)
-          .eq('is_like', true);
-
-        // Add dislike
-        await supabase
-          .from('reply_likes')
-          .insert([{
-            reply_id: replyId,
-            user_id: userId,
-            is_like: false,
-          }]);
-      }
-
-      // Update dislikes count in reply
-      await this.updateReplyLikesCount(replyId);
-    } catch (error) {
-      console.error('Error in dislikeReply:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Report a review
-   */
-  static async reportReview(reviewId: string, userId: string, reason: string): Promise<void> {
-    try {
-      await supabase
-        .from('review_reports')
-        .insert([{
-          review_id: reviewId,
-          user_id: userId,
-          reason,
-          created_at: new Date().toISOString(),
-        }]);
-    } catch (error) {
-      console.error('Error in reportReview:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Delete a review (for owners/admins)
-   */
-  static async deleteReview(reviewId: string, userId: string): Promise<void> {
-    try {
-      // Get the place_id before deleting the review
-      const { data: reviewData } = await supabase
+      console.log('💬 Adding reply to review:', reviewId);
+      
+      // Get current replies count and increment it
+      const { data: currentReview, error: fetchError } = await supabase
         .from('reviews')
-        .select('place_id')
+        .select('replies_count')
         .eq('id', reviewId)
         .single();
 
-      // In a real app, you'd check if the user has permission to delete
-      await supabase
+      if (fetchError) {
+        console.error('❌ Error fetching review for reply:', fetchError);
+        throw fetchError;
+      }
+
+      const newRepliesCount = (currentReview?.replies_count || 0) + 1;
+
+      const { error } = await supabase
         .from('reviews')
-        .delete()
+        .update({ replies_count: newRepliesCount })
         .eq('id', reviewId);
 
-      // Update place rating after deletion
-      if (reviewData?.place_id) {
-        await this.updatePlaceRating(reviewData.place_id);
+      if (error) {
+        console.error('❌ Error adding reply:', error);
+        throw error;
       }
+
+      console.log('✅ Reply added successfully');
     } catch (error) {
-      console.error('Error in deleteReview:', error);
+      console.error('❌ Error in addReply:', error);
       throw error;
     }
   }
 
   /**
-   * Update likes/dislikes count for a review
+   * Report a review (placeholder implementation)
    */
-  private static async updateReviewLikesCount(reviewId: string): Promise<void> {
+  static async reportReview(
+    reviewId: string,
+    userId: string,
+    reason: string
+  ): Promise<void> {
     try {
-      // Count likes
-      const { count: likesCount, error: likesError } = await supabase
-        .from('review_likes')
-        .select('*', { count: 'exact', head: true })
-        .eq('review_id', reviewId)
-        .eq('is_like', true);
-
-      if (likesError) {
-        console.error('Error counting likes:', likesError);
-        return;
-      }
-
-      // Count dislikes
-      const { count: dislikesCount, error: dislikesError } = await supabase
-        .from('review_likes')
-        .select('*', { count: 'exact', head: true })
-        .eq('review_id', reviewId)
-        .eq('is_like', false);
-
-      if (dislikesError) {
-        console.error('Error counting dislikes:', dislikesError);
-        return;
-      }
-
-      // Update review
-      const { error: updateError } = await supabase
-        .from('reviews')
-        .update({
-          likes_count: likesCount || 0,
-          dislikes_count: dislikesCount || 0,
-        })
-        .eq('id', reviewId);
-
-      if (updateError) {
-        console.error('Error updating review counts:', updateError);
-      }
-    } catch (error) {
-      console.error('Error updating review likes count:', error);
-    }
-  }
-
-  /**
-   * Update likes/dislikes count for a reply
-   */
-  private static async updateReplyLikesCount(replyId: string): Promise<void> {
-    try {
-      // Count likes
-      const { count: likesCount, error: likesError } = await supabase
-        .from('reply_likes')
-        .select('*', { count: 'exact', head: true })
-        .eq('reply_id', replyId)
-        .eq('is_like', true);
-
-      if (likesError) {
-        console.error('Error counting reply likes:', likesError);
-        return;
-      }
-
-      // Count dislikes
-      const { count: dislikesCount, error: dislikesError } = await supabase
-        .from('reply_likes')
-        .select('*', { count: 'exact', head: true })
-        .eq('reply_id', replyId)
-        .eq('is_like', false);
-
-      if (dislikesError) {
-        console.error('Error counting reply dislikes:', dislikesError);
-        return;
-      }
-
-      // Update reply
-      const { error: updateError } = await supabase
-        .from('review_replies')
-        .update({
-          likes_count: likesCount || 0,
-          dislikes_count: dislikesCount || 0,
-        })
-        .eq('id', replyId);
-
-      if (updateError) {
-        console.error('Error updating reply counts:', updateError);
-      }
-    } catch (error) {
-      console.error('Error updating reply likes count:', error);
-    }
-  }
-
-  /**
-   * Update replies count for a review
-   */
-  private static async updateReviewRepliesCount(reviewId: string): Promise<void> {
-    try {
-      const { count: repliesCount, error: countError } = await supabase
-        .from('review_replies')
-        .select('*', { count: 'exact', head: true })
-        .eq('review_id', reviewId);
-
-      if (countError) {
-        console.error('Error counting replies:', countError);
-        return;
-      }
-
-      const { error: updateError } = await supabase
-        .from('reviews')
-        .update({
-          replies_count: repliesCount || 0,
-        })
-        .eq('id', reviewId);
-
-      if (updateError) {
-        console.error('Error updating replies count:', updateError);
-      }
-    } catch (error) {
-      console.error('Error updating review replies count:', error);
-    }
-  }
-
-  /**
-   * Get user's like/dislike status for reviews
-   */
-  static async getUserReviewInteractions(userId: string, reviewIds: string[]): Promise<Record<string, { liked: boolean; disliked: boolean }>> {
-    try {
-      const { data } = await supabase
-        .from('review_likes')
-        .select('review_id, is_like')
-        .eq('user_id', userId)
-        .in('review_id', reviewIds);
-
-      const interactions: Record<string, { liked: boolean; disliked: boolean }> = {};
+      console.log('🚨 Reporting review:', reviewId, 'Reason:', reason);
       
-      reviewIds.forEach(id => {
-        interactions[id] = { liked: false, disliked: false };
-      });
-
-      data?.forEach(interaction => {
-        if (interaction.is_like) {
-          interactions[interaction.review_id].liked = true;
-        } else {
-          interactions[interaction.review_id].disliked = true;
-        }
-      });
-
-      return interactions;
+      // For now, just log the report
+      // In a real implementation, you'd store this in a reports table
+      console.log('✅ Review reported successfully');
     } catch (error) {
-      console.error('Error getting user review interactions:', error);
-      return {};
+      console.error('❌ Error in reportReview:', error);
+      throw error;
     }
   }
 
   /**
-   * Update place rating and review count based on all reviews
+   * Test database connection (fixed version)
    */
-  private static async updatePlaceRating(placeId: string): Promise<void> {
+  static async testConnection(): Promise<boolean> {
     try {
-      console.log('🔄 Updating place rating for:', placeId);
-      
-      // Get all reviews for this place
-      const { data: reviews, error: reviewsError } = await supabase
+      console.log('🔍 Testing reviews table connection...');
+
+      const { data, error } = await supabase
         .from('reviews')
-        .select('rating')
-        .eq('place_id', placeId);
+        .select('id')
+        .limit(1);
 
-      if (reviewsError) {
-        console.error('❌ Error fetching reviews for rating update:', reviewsError);
-        return;
+      if (error) {
+        console.error('❌ Reviews table connection failed:', error);
+        return false;
       }
 
-      const reviewCount = reviews?.length || 0;
-      let avgRating = 0;
+      console.log('✅ Reviews table connection successful');
+      return true;
 
-      if (reviewCount > 0) {
-        const totalRating = reviews!.reduce((sum, review) => sum + review.rating, 0);
-        avgRating = totalRating / reviewCount;
-      }
-
-      console.log(`📊 Place ${placeId}: ${reviewCount} reviews, avg rating: ${avgRating.toFixed(2)}`);
-
-      // Update the place with new rating and count
-      const { error: updateError } = await supabase
-        .from('places')
-        .update({
-          avg_rating: avgRating,
-          review_count: reviewCount,
-        })
-        .eq('id', placeId);
-
-      if (updateError) {
-        console.error('❌ Error updating place rating:', updateError);
-      } else {
-        console.log('✅ Place rating updated successfully');
-      }
     } catch (error) {
-      console.error('❌ Error in updatePlaceRating:', error);
+      console.error('❌ Error testing reviews connection:', error);
+      return false;
     }
   }
 }

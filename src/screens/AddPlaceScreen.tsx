@@ -8,24 +8,25 @@ import {
   TouchableOpacity,
   Alert,
   Image,
-  FlatList,
+  SafeAreaView,
 } from "react-native";
 import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from "expo-image-picker";
-import * as FileSystem from "expo-file-system";
-// TODO: Uncomment when Google API is ready
-// import { GooglePlacesAutocomplete } from "react-native-google-places-autocomplete";
 import { CreatePlaceInput, Location } from "../types";
 import { PlacesService } from "../services/places.service";
 import { ImageUploadService } from "../services/image-upload.service";
 import { LocationService } from "../services/location.service";
+import { useTheme } from "../contexts/ThemeContext";
+import { useLanguage } from "../contexts/LanguageContext";
+import { UserProfileService, UserProfile } from "../services/user-profile.service";
 import {
   validatePlaceTitle,
   validateCity,
   validateCapacity,
 } from "../utils/validation";
-import { COLORS, PLACE_TYPES } from "../utils/constants";
-import { getResponsiveDimensions, rs, rf } from "../utils/responsive";
+import { PLACE_TYPES } from "../utils/constants";
+import { rf, rs } from "../utils/responsive";
+import { useAddPlaceAuth, useUserInfo } from "../lib/authHelper";
 
 interface AddPlaceScreenProps {
   navigation: any;
@@ -34,14 +35,23 @@ interface AddPlaceScreenProps {
 export const AddPlaceScreen: React.FC<AddPlaceScreenProps> = ({
   navigation,
 }) => {
+  const { colors } = useTheme();
+  const { t } = useLanguage();
+  const { requireAddPlaceAuth } = useAddPlaceAuth();
+  const { user, isAuthenticated, getUserDisplayName } = useUserInfo();
+  
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(false);
+  const [hostedPlaces, setHostedPlaces] = useState(0); // TODO: Connect to actual hosted places count
+  
   const [formData, setFormData] = useState({
     title: "",
-    address: "", // Add address field
+    address: "",
     type: "masjid",
     city: "",
     capacity: "",
-    contact_phone: "", // Add contact phone field
-    whatsapp_number: "", // Add WhatsApp field
+    contact_phone: "",
+    whatsapp_number: "",
     amenities: {
       wuzu: false,
       washroom: false,
@@ -53,14 +63,31 @@ export const AddPlaceScreen: React.FC<AddPlaceScreenProps> = ({
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [selectedPlace, setSelectedPlace] = useState<any>(null);
-  const googlePlacesRef = useRef<any>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
 
   useEffect(() => {
+    if (isAuthenticated && user) {
+      loadUserProfile();
+    }
     getCurrentLocation();
-    // Clear any cached photo state on component mount
     setPhoto(null);
     console.log('🔄 AddPlaceScreen mounted - cleared photo state');
-  }, []);
+  }, [isAuthenticated, user]);
+
+  const loadUserProfile = async () => {
+    if (!user?.uid) return;
+    
+    try {
+      setLoadingProfile(true);
+      const profile = await UserProfileService.getProfile(user.uid);
+      setUserProfile(profile);
+      // TODO: Load hosted places count
+    } catch (error) {
+      console.error('Error loading profile:', error);
+    } finally {
+      setLoadingProfile(false);
+    }
+  };
 
   const getCurrentLocation = async () => {
     try {
@@ -76,7 +103,170 @@ export const AddPlaceScreen: React.FC<AddPlaceScreenProps> = ({
     }
   };
 
-  const handlePlaceSelect = (data: any, details: any) => {
+  const renderHostHeader = () => {
+    if (isAuthenticated && user) {
+      const displayName = userProfile?.full_name || getUserDisplayName();
+      const profileImageUrl = userProfile?.profile_image_url;
+      
+      return (
+        <>
+          {/* Header Bar */}
+          <View style={[styles.headerBar, { backgroundColor: colors.primary }]}>
+            <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+              <MaterialIcons name="arrow-back" size={rf(24)} color="white" />
+            </TouchableOpacity>
+            <Text style={[styles.headerTitle, { color: 'white' }]}>
+              {t('addPlace') || 'Add Place'}
+            </Text>
+            <TouchableOpacity style={styles.menuButton}>
+              <MaterialIcons name="menu" size={rf(24)} color="white" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Host Profile Section */}
+          <View style={[styles.profileSection, { backgroundColor: colors.background }]}>
+            <View style={styles.profileImageContainer}>
+              <View style={styles.profileImageTouchable}>
+                {profileImageUrl ? (
+                  <Image 
+                    source={{ uri: profileImageUrl }} 
+                    style={styles.profileImage}
+                  />
+                ) : (
+                  <View style={[styles.profileImagePlaceholder, { backgroundColor: colors.primary }]}>
+                    <MaterialIcons name="person" size={rf(40)} color="white" />
+                  </View>
+                )}
+                
+                <View style={[styles.hostBadge, { backgroundColor: '#FF9800' }]}>
+                  <MaterialIcons name="home" size={rf(12)} color="white" />
+                </View>
+              </View>
+            </View>
+            
+            <View style={styles.profileDetails}>
+              <Text style={[styles.profileName, { color: colors.text }]}>
+                {displayName}
+              </Text>
+              <Text style={[styles.memberSince, { color: colors.textSecondary }]}>
+                {t('hostSince') || 'Host since'} {userProfile?.created_at ? new Date(userProfile.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'December 23, 2025'}
+              </Text>
+              
+              <View style={styles.statusBadge}>
+                <View style={[styles.statusDot, { backgroundColor: '#4CAF50' }]} />
+                <Text style={[styles.statusText, { color: colors.text }]}>
+                  {t('activeHost') || 'ACTIVE HOST'}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Host Stats Cards */}
+          <View style={[styles.statsContainer, { backgroundColor: colors.background }]}>
+            <View style={[styles.statsCard, { backgroundColor: colors.surface }]}>
+              <View style={styles.statItem}>
+                <MaterialIcons name="location-on" size={rf(24)} color={colors.primary} />
+                <Text style={[styles.statNumber, { color: colors.text }]}>{hostedPlaces}</Text>
+                <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
+                  {t('hostedPlaces') || 'Hosted Places'}
+                </Text>
+              </View>
+              
+              <View style={styles.statItem}>
+                <MaterialIcons name="add-location" size={rf(24)} color={colors.primary} />
+                <Text style={[styles.statNumber, { color: colors.text }]}>+1</Text>
+                <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
+                  {t('newPlace') || 'New Place'}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Tab Navigation */}
+          <View style={[styles.tabContainer, { backgroundColor: colors.background }]}>
+            <TouchableOpacity 
+              style={[styles.tab, !showAddForm ? styles.activeTab : {}, { backgroundColor: !showAddForm ? colors.primary : colors.surface }]}
+              onPress={() => setShowAddForm(false)}
+            >
+              <MaterialIcons name="dashboard" size={rf(18)} color={!showAddForm ? "white" : colors.textSecondary} />
+              <Text style={[styles.tabText, { color: !showAddForm ? "white" : colors.textSecondary }]}>
+                {t('dashboard') || 'Dashboard'}
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.tab, showAddForm ? styles.activeTab : {}, { backgroundColor: showAddForm ? colors.primary : colors.surface }]}
+              onPress={() => setShowAddForm(true)}
+            >
+              <MaterialIcons name="add-location" size={rf(18)} color={showAddForm ? "white" : colors.textSecondary} />
+              <Text style={[styles.tabText, { color: showAddForm ? "white" : colors.textSecondary }]}>
+                {t('addPlace') || 'Add Place'}
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.tab, { backgroundColor: colors.surface }]}
+              onPress={() => navigation.navigate('MyPlaces')}
+            >
+              <MaterialIcons name="list" size={rf(18)} color={colors.textSecondary} />
+              <Text style={[styles.tabText, { color: colors.textSecondary }]}>
+                {t('myPlaces') || 'My Places'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      );
+    }
+
+    return (
+      <>
+        {/* Header Bar */}
+        <View style={[styles.headerBar, { backgroundColor: colors.primary }]}>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <MaterialIcons name="arrow-back" size={rf(24)} color="white" />
+          </TouchableOpacity>
+          <Text style={[styles.headerTitle, { color: 'white' }]}>
+            {t('addPlace') || 'Add Place'}
+          </Text>
+          <TouchableOpacity style={styles.menuButton}>
+            <MaterialIcons name="menu" size={rf(24)} color="white" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Guest Section */}
+        <View style={[styles.profileSection, { backgroundColor: colors.background }]}>
+          <View style={styles.profileImageContainer}>
+            <TouchableOpacity
+              style={styles.profileImageTouchable}
+              onPress={() => navigation.navigate('Login')}
+            >
+              <View style={[styles.profileImagePlaceholder, { backgroundColor: colors.textSecondary }]}>
+                <MaterialIcons name="person" size={rf(40)} color="white" />
+              </View>
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.profileDetails}>
+            <Text style={[styles.profileName, { color: colors.text }]}>
+              {t('becomeHost') || 'Become a Host'}
+            </Text>
+            <Text style={[styles.memberSince, { color: colors.textSecondary }]}>
+              {t('shareYourSpace') || 'Share your prayer space with the community'}
+            </Text>
+            
+            <TouchableOpacity
+              style={[styles.loginButton, { backgroundColor: colors.primary }]}
+              onPress={() => navigation.navigate('Login')}
+            >
+              <Text style={[styles.loginButtonText, { color: 'white' }]}>
+                {t('getStarted') || 'Get Started'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </>
+    );
+  };
     try {
       if (details?.formatted_address) {
         const fullAddress = details.formatted_address;
@@ -136,15 +326,18 @@ export const AddPlaceScreen: React.FC<AddPlaceScreenProps> = ({
       console.log('📷 BASIC: Permission status:', status);
       
       if (status !== 'granted') {
-        Alert.alert('Permission Needed', 'Please allow photo access to upload images.');
+        Alert.alert(t('error'), t('locationPermissionRequired'));
         return;
       }
 
       console.log('📷 BASIC: Opening gallery...');
       
+      // Use the most compatible format for mediaTypes
+      const mediaTypes = ImagePicker.MediaTypeOptions?.Images || 'Images';
+
       // Minimal image picker options
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images, // Fixed: use MediaTypeOptions
+        mediaTypes: mediaTypes,
         quality: 0.8,
         base64: true,
       });
@@ -156,7 +349,7 @@ export const AddPlaceScreen: React.FC<AddPlaceScreenProps> = ({
         return;
       }
 
-      if (result.assets && result.assets[0]) {
+      if (result.assets && result.assets.length > 0) {
         const image = result.assets[0];
         console.log('📷 BASIC: Image data:', {
           hasUri: !!image.uri,
@@ -172,10 +365,10 @@ export const AddPlaceScreen: React.FC<AddPlaceScreenProps> = ({
           };
           console.log('✅ BASIC: Image set successfully');
         } else {
-          Alert.alert('Error', 'Image data incomplete. Try a different image.');
+          Alert.alert(t('error'), 'Image data incomplete. Try a different image.');
         }
       } else {
-        Alert.alert('Error', 'No image selected.');
+        Alert.alert(t('error'), 'No image selected.');
       }
         
     } catch (error) {
@@ -193,7 +386,7 @@ export const AddPlaceScreen: React.FC<AddPlaceScreenProps> = ({
 
     // Add address validation
     if (!formData.address.trim()) {
-      newErrors.address = "Address is required";
+      newErrors.address = t('addressRequired');
     } else if (formData.address.trim().length < 5) {
       newErrors.address = "Please enter a complete address";
     }
@@ -205,7 +398,7 @@ export const AddPlaceScreen: React.FC<AddPlaceScreenProps> = ({
     if (capacityError) newErrors.capacity = capacityError;
 
     if (!location) {
-      newErrors.location = "Location is required";
+      newErrors.location = t('locationRequired');
     }
 
     // TODO: Uncomment when Google Places is enabled
@@ -215,7 +408,7 @@ export const AddPlaceScreen: React.FC<AddPlaceScreenProps> = ({
 
     // Photo is required for good user experience
     if (!photo) {
-      newErrors.photo = "Photo is required";
+      newErrors.photo = t('photoRequired');
     }
 
     setErrors(newErrors);
@@ -223,184 +416,206 @@ export const AddPlaceScreen: React.FC<AddPlaceScreenProps> = ({
   };
 
   const handleSubmit = async () => {
-    console.log("🚀 handleSubmit called");
-    console.log("📍 Current location:", location);
-    console.log("📝 Form data:", formData);
+    // Check authentication first
+    const proceedWithSubmission = async () => {
+      console.log("🚀 handleSubmit called");
+      console.log("📍 Current location:", location);
+      console.log("📝 Form data:", formData);
 
-    const isValid = validateForm();
-    console.log("✅ Form validation result:", isValid);
-    console.log("❌ Validation errors:", errors);
+      const isValid = validateForm();
+      console.log("✅ Form validation result:", isValid);
+      console.log("❌ Validation errors:", errors);
 
-    if (!isValid) {
-      console.log("❌ Form validation failed, stopping submission");
-      return;
-    }
-
-    if (!location) {
-      console.log("❌ No location available, stopping submission");
-      return;
-    }
-
-    console.log("🔄 Starting submission process...");
-    setLoading(true);
-
-    try {
-      // Create place data with all required fields
-      const placeData: CreatePlaceInput = {
-        title: formData.title.trim(),
-        address: formData.address.trim(), // Add address field
-        type: formData.type,
-        latitude: location.latitude,
-        longitude: location.longitude,
-        city: formData.city.trim(),
-        amenities: formData.amenities, // Include amenities (optional with default in DB)
-      };
-
-      // Add optional fields only if they have values
-      if (formData.capacity && formData.capacity.trim()) {
-        placeData.capacity = parseInt(formData.capacity);
+      if (!isValid) {
+        console.log("❌ Form validation failed, stopping submission");
+        return;
       }
 
-      // Add contact information if provided
-      if (formData.contact_phone && formData.contact_phone.trim()) {
-        placeData.contact_phone = formData.contact_phone.trim();
+      if (!location) {
+        console.log("❌ No location available, stopping submission");
+        return;
       }
 
-      if (formData.whatsapp_number && formData.whatsapp_number.trim()) {
-        placeData.whatsapp_number = formData.whatsapp_number.trim();
-      }
+      console.log("🔄 Starting submission process...");
+      setLoading(true);
 
-      console.log("📤 Sending place data to Supabase:", placeData);
+      try {
+        // Create place data with all required fields
+        const placeData: CreatePlaceInput = {
+          title: formData.title.trim(),
+          address: formData.address.trim(), // Add address field
+          type: formData.type,
+          latitude: location.latitude,
+          longitude: location.longitude,
+          city: formData.city.trim(),
+          amenities: formData.amenities, // Include amenities (optional with default in DB)
+        };
 
-      // Upload image to Supabase Storage if photo exists
-      if (photo) {
-        console.log('📤 Uploading image to cloud storage...');
-        console.log('📱 Local image URI:', photo);
-        
-        try {
-          const publicImageUrl = await ImageUploadService.uploadPlaceImage(photo);
-          
-          // Validate that we got a proper Supabase URL
-          if (publicImageUrl && publicImageUrl.includes('supabase.co') && publicImageUrl.includes('/public/')) {
-            placeData.photo = publicImageUrl; // Use public URL instead of local URI
-            console.log('✅ Image uploaded successfully:', publicImageUrl);
-          } else {
-            console.error('❌ Invalid image URL returned:', publicImageUrl);
-            throw new Error('Invalid image URL format');
-          }
-        } catch (imageError) {
-          console.error('❌ Image upload failed:', imageError);
-          
-          // Show alert with options
-          Alert.alert(
-            "Image Upload Failed", 
-            `Error: ${imageError instanceof Error ? imageError.message : 'Unknown error'}\n\nPlease try:\n• Selecting a different image\n• Using a smaller image file\n• Checking your internet connection`,
-            [
-              { 
-                text: "Try Again", 
-                style: "default",
+        // Helper to proceed with creating the place (used when user chooses to continue without image)
+        const proceedWithPlaceCreation = async () => {
+          try {
+            const result = await PlacesService.createPlace(placeData);
+            console.log("✅ Place created successfully:", result);
+            console.log("🔍 Created place photo field:", result.photo || 'undefined - NO IMAGE SAVED');
+
+            Alert.alert(t('success'), t('placeAddedSuccess'), [
+              {
+                text: t('viewPlaces'),
                 onPress: () => {
-                  // Don't continue - let user try again
-                  console.log('❌ User will try uploading again');
-                }
-              },
-              { 
-                text: "Continue Without Image", 
-                style: "destructive",
-                onPress: async () => {
-                  const confirmContinue = await new Promise<boolean>((resolve) => {
-                    Alert.alert(
-                      "Are you sure?",
-                      "Places without photos get less visibility. Users prefer to see what the place looks like.",
-                      [
-                        { text: "Cancel", onPress: () => resolve(false) },
-                        { text: "Continue Anyway", onPress: () => resolve(true) }
-                      ]
-                    );
+                  // Reset form completely
+                  console.log('🔄 Resetting form after successful submission...');
+                  setFormData({
+                    title: "",
+                    address: "",
+                    type: "masjid",
+                    city: "",
+                    capacity: "",
+                    contact_phone: "",
+                    whatsapp_number: "",
+                    amenities: {
+                      wuzu: false,
+                      washroom: false,
+                      women_area: false,
+                    },
                   });
-                  
-                  if (confirmContinue) {
-                    // Continue without image
-                    console.log('⚠️ User chose to continue without image');
-                    // Don't set placeData.photo at all
-                    proceedWithPlaceCreation();
+                  setPhoto(null); // Clear photo state
+                  setErrors({}); // Clear any errors
+                  console.log('✅ Form reset completed');
+
+                  // Navigate to home tab
+                  navigation.navigate("HomeTab");
+                },
+              },
+            ]);
+          } catch (error) {
+            console.error("❌ Error creating place:", error);
+            const errorMessage = error instanceof Error ? error.message : t('error');
+            Alert.alert(t('error'), `Unable to add place: ${errorMessage}`);
+          } finally {
+            setLoading(false);
+            console.log("🏁 Submission process completed");
+          }
+        };
+
+        // Add optional fields only if they have values
+        if (formData.capacity && formData.capacity.trim()) {
+          placeData.capacity = parseInt(formData.capacity);
+        }
+
+        // Add contact information if provided
+        if (formData.contact_phone && formData.contact_phone.trim()) {
+          placeData.contact_phone = formData.contact_phone.trim();
+        }
+
+        if (formData.whatsapp_number && formData.whatsapp_number.trim()) {
+          placeData.whatsapp_number = formData.whatsapp_number.trim();
+        }
+
+        console.log("📤 Sending place data to Supabase:", placeData);
+
+        // Upload image to Supabase Storage if photo exists
+        if (photo) {
+          console.log('📤 Uploading image to cloud storage...');
+          console.log('📱 Local image URI:', photo);
+          
+          try {
+            const publicImageUrl = await ImageUploadService.uploadPlaceImage(photo);
+            
+            // Validate that we got a proper Supabase URL
+            if (publicImageUrl && publicImageUrl.includes('supabase.co') && publicImageUrl.includes('/public/')) {
+              placeData.photo = publicImageUrl; // Use public URL instead of local URI
+              console.log('✅ Image uploaded successfully:', publicImageUrl);
+            } else {
+              console.error('❌ Invalid image URL returned:', publicImageUrl);
+              throw new Error('Invalid image URL format');
+            }
+          } catch (imageError) {
+            console.error('❌ Image upload failed:', imageError);
+            
+            // Show alert with options
+            Alert.alert(
+              "Image Upload Failed", 
+              `Error: ${imageError instanceof Error ? imageError.message : 'Unknown error'}\n\nPlease try:\n• Selecting a different image\n• Using a smaller image file\n• Checking your internet connection`,
+              [
+                { 
+                  text: t('tryAgain'), 
+                  style: "default",
+                  onPress: () => {
+                    // Don't continue - let user try again
+                    console.log('❌ User will try uploading again');
+                  }
+                },
+                { 
+                  text: "Continue Without Image", 
+                  style: "destructive",
+                  onPress: async () => {
+                    const confirmContinue = await new Promise<boolean>((resolve) => {
+                      Alert.alert(
+                        "Are you sure?",
+                        "Places without photos get less visibility. Users prefer to see what the place looks like.",
+                        [
+                          { text: t('cancel'), onPress: () => resolve(false) },
+                          { text: "Continue Anyway", onPress: () => resolve(true) }
+                        ]
+                      );
+                    });
+                    
+                    if (confirmContinue) {
+                      // Continue without image
+                      console.log('⚠️ User chose to continue without image');
+                      // Don't set placeData.photo at all
+                      proceedWithPlaceCreation();
+                    }
                   }
                 }
-              }
-            ]
-          );
-          
-          return; // Exit early - don't continue with place creation
-        }
-      } else {
-        console.log('📷 No photo selected - creating place without image');
-      }
-
-      const result = await PlacesService.createPlace(placeData);
-      console.log("✅ Place created successfully:", result);
-      console.log("🔍 Created place photo field:", result.photo || 'undefined - NO IMAGE SAVED');
-
-      Alert.alert("Success", "Prayer space added successfully!", [
-        {
-          text: "View Places",
-          onPress: () => {
-            // Reset form completely
-            console.log('🔄 Resetting form after successful submission...');
-            setFormData({
-              title: "",
-              address: "",
-              type: "masjid",
-              city: "",
-              capacity: "",
-              contact_phone: "",
-              whatsapp_number: "",
-              amenities: {
-                wuzu: false,
-                washroom: false,
-                women_area: false,
-              },
-            });
-            setPhoto(null); // Clear photo state
-            setErrors({}); // Clear any errors
-            console.log('✅ Form reset completed');
+              ]
+            );
             
-            // Navigate to home tab
-            navigation.navigate("HomeTab");
-          },
-        },
-      ]);
-    } catch (error) {
-      console.error("❌ Error creating place:", error);
-      console.error("❌ Error details:", JSON.stringify(error, null, 2));
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error";
-      Alert.alert("Error", `Unable to add place: ${errorMessage}`);
-    } finally {
-      setLoading(false);
-      console.log("🏁 Submission process completed");
-    }
+            return; // Exit early - don't continue with place creation
+          }
+        } else {
+          console.log('📷 No photo selected - creating place without image');
+        }
+
+        await proceedWithPlaceCreation();
+      } catch (error) {
+        console.error("❌ Error creating place:", error);
+        console.error("❌ Error details:", JSON.stringify(error, null, 2));
+        const errorMessage =
+          error instanceof Error ? error.message : t('error');
+        Alert.alert(t('error'), `Unable to add place: ${errorMessage}`);
+      } finally {
+        setLoading(false);
+        console.log("🏁 Submission process completed");
+      }
+    };
+
+    // Require authentication for adding a place
+    requireAddPlaceAuth(navigation, proceedWithSubmission);
   };
 
   const renderTypeSelector = () => (
     <View style={styles.typeContainer}>
-      <Text style={styles.label}>Type of Place *</Text>
+      <Text style={[styles.label, { color: colors.text }]}>{t('typeOfPlace')} *</Text>
       <View style={styles.typeButtons}>
         {PLACE_TYPES.map((type) => (
           <TouchableOpacity
             key={type.value}
             style={[
               styles.typeButton,
-              formData.type === type.value && styles.typeButtonActive,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+              formData.type === type.value && { backgroundColor: colors.primary, borderColor: colors.primary },
             ]}
             onPress={() => setFormData({ ...formData, type: type.value })}
           >
             <Text
               style={[
                 styles.typeButtonText,
-                formData.type === type.value && styles.typeButtonTextActive,
+                { color: colors.text },
+                formData.type === type.value && { color: colors.textInverse },
               ]}
             >
-              {type.label}
+              {t(type.value)}
             </Text>
           </TouchableOpacity>
         ))}
@@ -410,7 +625,7 @@ export const AddPlaceScreen: React.FC<AddPlaceScreenProps> = ({
 
   const renderAmenities = () => (
     <View style={styles.amenitiesContainer}>
-      <Text style={styles.label}>Available Amenities</Text>
+      <Text style={[styles.label, { color: colors.text }]}>{t('availableAmenities')}</Text>
       {Object.entries(formData.amenities).map(([key, value]) => (
         <TouchableOpacity
           key={key}
@@ -425,11 +640,15 @@ export const AddPlaceScreen: React.FC<AddPlaceScreenProps> = ({
             })
           }
         >
-          <View style={[styles.checkbox, value && styles.checkboxActive]}>
-            {value && <MaterialIcons name="check" size={rf(20)} color={COLORS.surface} />}
+          <View style={[
+            styles.checkbox, 
+            { borderColor: colors.border, backgroundColor: colors.surface },
+            value && { backgroundColor: colors.primary, borderColor: colors.primary }
+          ]}>
+            {value && <MaterialIcons name="check" size={rf(20)} color={colors.textInverse} />}
           </View>
-          <Text style={styles.amenityLabel}>
-            {key.replace("_", " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+          <Text style={[styles.amenityLabel, { color: colors.text }]}>
+            {t(key)}
           </Text>
         </TouchableOpacity>
       ))}
@@ -437,7 +656,7 @@ export const AddPlaceScreen: React.FC<AddPlaceScreenProps> = ({
   );
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView 
         style={styles.scrollView} 
         keyboardShouldPersistTaps="handled"
@@ -445,12 +664,12 @@ export const AddPlaceScreen: React.FC<AddPlaceScreenProps> = ({
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.content}>
-          <Text style={styles.description}>
-            Help fellow Muslims by adding a prayer space in your area.
+          <Text style={[styles.description, { color: colors.textSecondary }]}>
+            {t('helpFellowMuslims')}
           </Text>
 
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Place Name *</Text>
+            <Text style={[styles.label, { color: colors.text }]}>{t('placeName')} *</Text>
             <View style={styles.placeNameWrapper}>
               {/* TODO: Uncomment when Google API is ready */}
               {/* 
@@ -482,7 +701,7 @@ export const AddPlaceScreen: React.FC<AddPlaceScreenProps> = ({
                   description: styles.googlePlacesDescription,
                 }}
                 textInputProps={{
-                  placeholderTextColor: COLORS.textSecondary,
+                  placeholderTextColor: colors.textSecondary,
                   onFocus: () => console.log("🔍 Google Places input focused"),
                   onChangeText: (text) => console.log("📝 Typing:", text),
                 }}
@@ -501,11 +720,11 @@ export const AddPlaceScreen: React.FC<AddPlaceScreenProps> = ({
               
               {/* Temporary simple input - will be replaced with Google Places later */}
               <TextInput
-                style={[styles.input, errors.title && styles.inputError]}
+                style={[styles.input, { backgroundColor: colors.surface, color: colors.text, borderColor: colors.border }, errors.title && { borderColor: colors.error }]}
                 value={formData.title}
                 onChangeText={(text) => setFormData({ ...formData, title: text })}
-                placeholder="Enter place name (e.g., Al-Noor Masjid)"
-                placeholderTextColor={COLORS.textSecondary}
+                placeholder={t('enterPlaceName')}
+                placeholderTextColor={colors.textSecondary}
               />
               
               {selectedPlace && (
@@ -513,7 +732,7 @@ export const AddPlaceScreen: React.FC<AddPlaceScreenProps> = ({
                   style={styles.clearButton}
                   onPress={clearPlaceSelection}
                 >
-                  <MaterialIcons name="close" size={rf(22)} color={COLORS.surface} />
+                  <MaterialIcons name="close" size={rf(22)} color={colors.surface} />
                 </TouchableOpacity>
               )}
             </View>
@@ -523,81 +742,81 @@ export const AddPlaceScreen: React.FC<AddPlaceScreenProps> = ({
           </View>
 
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Address *</Text>
+            <Text style={[styles.label, { color: colors.text }]}>{t('address')} *</Text>
             <TextInput
-              style={[styles.input, errors.address && styles.inputError]}
+              style={[styles.input, { backgroundColor: colors.surface, color: colors.text, borderColor: colors.border }, errors.address && { borderColor: colors.error }]}
               value={formData.address}
               onChangeText={(text) => setFormData({ ...formData, address: text })}
-              placeholder="Enter full address (e.g., 123 Main Street, Andheri West)"
-              placeholderTextColor={COLORS.textSecondary}
+              placeholder={t('enterFullAddress')}
+              placeholderTextColor={colors.textSecondary}
               multiline
               numberOfLines={2}
             />
             {errors.address && (
-              <Text style={styles.errorText}>{errors.address}</Text>
+              <Text style={[styles.errorText, { color: colors.error }]}>{errors.address}</Text>
             )}
           </View>
 
           {renderTypeSelector()}
 
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>City *</Text>
+            <Text style={[styles.label, { color: colors.text }]}>{t('city')} *</Text>
             <TextInput
-              style={[styles.input, errors.city && styles.inputError]}
+              style={[styles.input, { backgroundColor: colors.surface, color: colors.text, borderColor: colors.border }, errors.city && { borderColor: colors.error }]}
               value={formData.city}
               onChangeText={(text) => setFormData({ ...formData, city: text })}
-              placeholder="e.g., Mumbai, Delhi"
-              placeholderTextColor={COLORS.textSecondary}
+              placeholder={t('enterCity')}
+              placeholderTextColor={colors.textSecondary}
             />
-            {errors.city && <Text style={styles.errorText}>{errors.city}</Text>}
+            {errors.city && <Text style={[styles.errorText, { color: colors.error }]}>{errors.city}</Text>}
           </View>
 
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Capacity (Optional)</Text>
+            <Text style={[styles.label, { color: colors.text }]}>{t('capacityOptional')}</Text>
             <TextInput
-              style={[styles.input, errors.capacity && styles.inputError]}
+              style={[styles.input, { backgroundColor: colors.surface, color: colors.text, borderColor: colors.border }, errors.capacity && { borderColor: colors.error }]}
               value={formData.capacity}
               onChangeText={(text) =>
                 setFormData({ ...formData, capacity: text })
               }
-              placeholder="e.g., 50"
+              placeholder={t('enterCapacity')}
               keyboardType="numeric"
-              placeholderTextColor={COLORS.textSecondary}
+              placeholderTextColor={colors.textSecondary}
             />
             {errors.capacity && (
-              <Text style={styles.errorText}>{errors.capacity}</Text>
+              <Text style={[styles.errorText, { color: colors.error }]}>{errors.capacity}</Text>
             )}
           </View>
 
           {/* Contact Information Section */}
-          <View style={styles.sectionContainer}>
-            <Text style={styles.sectionTitle}>Contact Information (Optional)</Text>
+          <View style={[styles.sectionContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('contactInformation')}</Text>
             
             <View style={styles.inputContainer}>
-              <Text style={styles.label}>Phone Number</Text>
+              <Text style={[styles.label, { color: colors.text }]}>{t('phoneNumber')}</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, { backgroundColor: colors.surface, color: colors.text, borderColor: colors.border }]}
                 value={formData.contact_phone}
                 onChangeText={(text) =>
                   setFormData({ ...formData, contact_phone: text })
                 }
-                placeholder="e.g., +91 9876543210"
+                placeholder={t('enterPhone')}
                 keyboardType="phone-pad"
-                placeholderTextColor={COLORS.textSecondary}
+                placeholderTextColor={colors.textSecondary}
               />
             </View>
 
             <View style={styles.inputContainer}>
-              <Text style={styles.label}>WhatsApp Number</Text>
+              <Text style={[styles.label, { color: colors.text }]}>{t('whatsappNumber')}</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, { backgroundColor: colors.surface, color: colors.text, borderColor: colors.border }]}
                 value={formData.whatsapp_number}
                 onChangeText={(text) =>
                   setFormData({ ...formData, whatsapp_number: text })
                 }
-                placeholder="e.g., +91 9876543210"
+                placeholder={t('enterPhone')}
                 keyboardType="phone-pad"
-                placeholderTextColor={COLORS.textSecondary}
+                placeholderTextColor={colors.textSecondary}
               />
             </View>
           </View>
@@ -605,7 +824,7 @@ export const AddPlaceScreen: React.FC<AddPlaceScreenProps> = ({
           {renderAmenities()}
 
           <View style={styles.photoContainer}>
-            <Text style={styles.label}>Photo *</Text>
+            <Text style={[styles.label, { color: colors.text }]}>{t('photo')} *</Text>
             <TouchableOpacity style={styles.photoButton} onPress={pickImage}>
               {photo ? (
                 <View style={styles.photoPreviewContainer}>
@@ -625,37 +844,38 @@ export const AddPlaceScreen: React.FC<AddPlaceScreenProps> = ({
                     }}
                   />
                   <TouchableOpacity 
-                    style={styles.removePhotoButton}
+                    style={[styles.removePhotoButton, { backgroundColor: colors.error }]}
                     onPress={() => {
                       setPhoto(null);
                       console.log('📷 Photo removed - cleared state');
                     }}
                   >
-                    <MaterialIcons name="close" size={rf(20)} color={COLORS.surface} />
+                    <MaterialIcons name="close" size={rf(20)} color={colors.textInverse} />
                   </TouchableOpacity>
                 </View>
               ) : (
-                <View style={styles.photoPlaceholder}>
-                  <MaterialIcons name="camera-alt" size={rf(40)} color={COLORS.textSecondary} />
-                  <Text style={styles.photoPlaceholderText}>Add Photo</Text>
+                <View style={[styles.photoPlaceholder, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                  <MaterialIcons name="camera-alt" size={rf(40)} color={colors.textSecondary} />
+                  <Text style={[styles.photoPlaceholderText, { color: colors.textSecondary }]}>{t('addPhoto')}</Text>
                 </View>
               )}
             </TouchableOpacity>
             {!photo && (
-              <Text style={styles.errorText}>Photo is required</Text>
+              <Text style={[styles.errorText, { color: colors.error }]}>{t('photoRequired')}</Text>
             )}
           </View>
 
           <TouchableOpacity
             style={[
               styles.submitButton,
-              loading && styles.submitButtonDisabled,
+              { backgroundColor: colors.primary },
+              loading && { backgroundColor: colors.textSecondary },
             ]}
             onPress={handleSubmit}
             disabled={loading}
           >
-            <Text style={styles.submitButtonText}>
-              {loading ? "Adding Place..." : "Add Prayer Space"}
+            <Text style={[styles.submitButtonText, { color: colors.textInverse }]}>
+              {loading ? t('addingPlace') : t('addPrayerSpace')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -669,7 +889,6 @@ const responsiveDimensions = getResponsiveDimensions();
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.background,
   },
 
   scrollView: {
@@ -680,7 +899,6 @@ const styles = StyleSheet.create({
   },
   description: {
     fontSize: rf(16),
-    color: COLORS.textSecondary,
     textAlign: "center",
     marginBottom: rs(24),
   },
@@ -690,40 +908,31 @@ const styles = StyleSheet.create({
   sectionContainer: {
     marginBottom: rs(24),
     padding: rs(16),
-    backgroundColor: COLORS.surface,
     borderRadius: rs(12),
     borderWidth: 1,
-    borderColor: COLORS.border,
   },
   sectionTitle: {
     fontSize: rf(18),
     fontWeight: "700",
-    color: COLORS.text,
     marginBottom: rs(16),
   },
   label: {
     fontSize: rf(16),
     fontWeight: "600",
-    color: COLORS.text,
     marginBottom: rs(8),
   },
   input: {
     borderWidth: 2,
-    borderColor: COLORS.border,
     borderRadius: responsiveDimensions.cardBorderRadius,
     padding: responsiveDimensions.inputPadding,
     fontSize: rf(16),
-    backgroundColor: COLORS.surface,
-    color: COLORS.text,
     minHeight: responsiveDimensions.inputHeight,
   },
   inputError: {
-    borderColor: COLORS.error,
     borderWidth: 2,
   },
   errorText: {
     fontSize: rf(14),
-    color: COLORS.error,
     marginTop: rs(4),
   },
   typeContainer: {
@@ -738,20 +947,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: rs(16),
     paddingVertical: rs(8),
     borderRadius: rs(20),
-    backgroundColor: COLORS.surface,
     borderWidth: 1,
-    borderColor: COLORS.background,
   },
   typeButtonActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
   },
   typeButtonText: {
     fontSize: rf(14),
-    color: COLORS.text,
   },
   typeButtonTextActive: {
-    color: COLORS.surface,
   },
   amenitiesContainer: {
     marginBottom: rs(20),
@@ -765,21 +968,16 @@ const styles = StyleSheet.create({
     width: rs(24),
     height: rs(24),
     borderWidth: 2,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.surface,
     borderRadius: rs(4),
     marginRight: rs(12),
     justifyContent: "center",
     alignItems: "center",
   },
   checkboxActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
   },
 
   amenityLabel: {
     fontSize: rf(16),
-    color: COLORS.text,
   },
   photoContainer: {
     marginBottom: rs(20),
@@ -806,7 +1004,6 @@ const styles = StyleSheet.create({
     width: rs(28),
     height: rs(28),
     borderRadius: rs(14),
-    backgroundColor: COLORS.error,
     justifyContent: "center",
     alignItems: "center",
     elevation: 2,
@@ -818,16 +1015,13 @@ const styles = StyleSheet.create({
   photoPlaceholder: {
     width: "100%",
     height: "100%",
-    backgroundColor: COLORS.surface,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: COLORS.background,
     borderStyle: "dashed",
   },
   photoPlaceholderText: {
     fontSize: rf(16),
-    color: COLORS.textSecondary,
     marginTop: rs(8),
   },
   locationContainer: {
@@ -835,25 +1029,19 @@ const styles = StyleSheet.create({
   },
   locationText: {
     fontSize: rf(14),
-    color: COLORS.textSecondary,
-    backgroundColor: COLORS.surface,
     padding: rs(12),
     borderRadius: rs(8),
   },
   locationButton: {
-    backgroundColor: COLORS.surface,
     padding: rs(12),
     borderRadius: rs(8),
     alignItems: "center",
     borderWidth: 1,
-    borderColor: COLORS.background,
   },
   locationButtonText: {
     fontSize: rf(16),
-    color: COLORS.primary,
   },
   submitButton: {
-    backgroundColor: COLORS.primary,
     paddingVertical: rs(18),
     borderRadius: responsiveDimensions.cardBorderRadius,
     alignItems: "center",
@@ -861,12 +1049,10 @@ const styles = StyleSheet.create({
     minHeight: responsiveDimensions.buttonHeight,
   },
   submitButtonDisabled: {
-    backgroundColor: COLORS.textSecondary,
   },
   submitButtonText: {
     fontSize: rf(18),
     fontWeight: "600",
-    color: COLORS.surface,
   },
   placeNameWrapper: {
     position: "relative",
@@ -878,24 +1064,18 @@ const styles = StyleSheet.create({
   },
   googlePlacesInput: {
     borderWidth: 2,
-    borderColor: COLORS.border,
     borderRadius: responsiveDimensions.cardBorderRadius,
     padding: responsiveDimensions.inputPadding,
     fontSize: rf(16),
-    backgroundColor: COLORS.surface,
-    color: COLORS.text,
     paddingRight: rs(50), // Space for clear button
     minHeight: responsiveDimensions.inputHeight,
   },
   googlePlacesListView: {
     borderWidth: 1,
-    borderColor: COLORS.border,
     borderRadius: rs(8),
     marginTop: rs(4),
-    backgroundColor: COLORS.surface,
     maxHeight: rs(300),
     elevation: 10,
-    shadowColor: COLORS.shadow,
     shadowOffset: { width: 0, height: rs(4) },
     shadowOpacity: 0.25,
     shadowRadius: rs(5),
@@ -904,11 +1084,9 @@ const styles = StyleSheet.create({
   googlePlacesRow: {
     padding: rs(12),
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
   },
   googlePlacesDescription: {
     fontSize: rf(14),
-    color: COLORS.text,
   },
   clearButton: {
     position: "absolute",
@@ -918,7 +1096,6 @@ const styles = StyleSheet.create({
     height: rs(24),
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: COLORS.error,
     borderRadius: rs(12),
     zIndex: 15,
   },
